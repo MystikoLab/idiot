@@ -1,9 +1,14 @@
 APP_NAME = idiot
+SCHEME_NAME = idiot
 PROJECT_DIR = .
 BUNDLE_ID = com.umangsurana.idiot
-SIMULATOR_NAME = iPhone 17 Pro
+SIMULATOR_NAME ?= iPhone 17 Pro
 DEVICE_NAME ?= iPhone
+DERIVED_DATA = $(PROJECT_DIR)/build
 SWIFTFORMAT_VERSION = 0.55.5
+
+XCODEBUILD = xcodebuild -project "$(PROJECT_DIR)/$(APP_NAME).xcodeproj" -scheme "$(SCHEME_NAME)"
+MACOS_DEST = -destination "platform=macOS"
 
 .PHONY: install format build run build-ios run-ios build-device run-device clean all
 
@@ -19,49 +24,49 @@ format:
 	swiftformat .
 
 build: format
-	@echo "Building $(APP_NAME)..."
-	xcodebuild -project "$(PROJECT_DIR)/$(APP_NAME).xcodeproj" -scheme "$(APP_NAME)" build
+	@echo "Building $(APP_NAME) for macOS..."
+	$(XCODEBUILD) $(MACOS_DEST) -derivedDataPath "$(DERIVED_DATA)" build
 
 run: format
-	@echo "Running $(APP_NAME)..."
-	xcodebuild -project "$(PROJECT_DIR)/$(APP_NAME).xcodeproj" -scheme "$(APP_NAME)" build
-	open "$(PROJECT_DIR)/build/Release/$(APP_NAME).app" 2>/dev/null || \
-		xcrun xcodebuild -project "$(PROJECT_DIR)/$(APP_NAME).xcodeproj" -scheme "$(APP_NAME)" -derivedDataPath "$(PROJECT_DIR)/build" build && \
-		open "$(PROJECT_DIR)/build/Build/Products/Debug/$(APP_NAME).app"
+	@echo "Running $(APP_NAME) on macOS..."
+	$(XCODEBUILD) $(MACOS_DEST) -derivedDataPath "$(DERIVED_DATA)" build
+	open "$(DERIVED_DATA)/Build/Products/Debug/$(APP_NAME).app"
 
 build-ios: format
-	@echo "Building $(APP_NAME) for iOS Simulator..."
-	xcodebuild -project "$(PROJECT_DIR)/$(APP_NAME).xcodeproj" -scheme "$(APP_NAME)" \
-		-destination "platform=iOS Simulator,name=$(SIMULATOR_NAME)" build
+	@echo "Building $(APP_NAME) for iOS Simulator ($(SIMULATOR_NAME))..."
+	$(XCODEBUILD) \
+		-destination "platform=iOS Simulator,name=$(SIMULATOR_NAME)" \
+		-derivedDataPath "$(DERIVED_DATA)" build
 
 run-ios: format
-	@echo "Running $(APP_NAME) on iOS Simulator..."
-	xcodebuild -project "$(PROJECT_DIR)/$(APP_NAME).xcodeproj" -scheme "$(APP_NAME)" \
+	@echo "Running $(APP_NAME) on iOS Simulator ($(SIMULATOR_NAME))..."
+	$(XCODEBUILD) \
 		-destination "platform=iOS Simulator,name=$(SIMULATOR_NAME)" \
-		-derivedDataPath "$(PROJECT_DIR)/build" build
+		-derivedDataPath "$(DERIVED_DATA)" build
 	open -a Simulator
-	xcrun simctl boot $(SIMULATOR_NAME) 2>/dev/null || true
-	xcrun simctl install booted "$(PROJECT_DIR)/build/Build/Products/Debug-iphonesimulator/$(APP_NAME).app"
-	xcrun simctl launch booted $(BUNDLE_ID)
+	xcrun simctl boot "$(SIMULATOR_NAME)" 2>/dev/null || true
+	xcrun simctl bootstatus "$(SIMULATOR_NAME)" -b
+	xcrun simctl install "$(SIMULATOR_NAME)" "$(DERIVED_DATA)/Build/Products/Debug-iphonesimulator/$(APP_NAME).app"
+	xcrun simctl launch "$(SIMULATOR_NAME)" $(BUNDLE_ID)
 
 build-device: format
 	@echo "Building $(APP_NAME) for physical iPhone..."
-	xcodebuild -project "$(PROJECT_DIR)/$(APP_NAME).xcodeproj" -scheme "$(APP_NAME)" \
-		-destination "generic/platform=iOS" -derivedDataPath "$(PROJECT_DIR)/build" \
+	$(XCODEBUILD) \
+		-destination "generic/platform=iOS" -derivedDataPath "$(DERIVED_DATA)" \
 		-allowProvisioningUpdates -allowProvisioningDeviceRegistration build
 
 run-device: format
 	@echo "Building and installing $(APP_NAME) on $(DEVICE_NAME)..."
-	xcodebuild -project "$(PROJECT_DIR)/$(APP_NAME).xcodeproj" -scheme "$(APP_NAME)" \
-		-destination "generic/platform=iOS" -derivedDataPath "$(PROJECT_DIR)/build" \
+	$(XCODEBUILD) \
+		-destination "generic/platform=iOS" -derivedDataPath "$(DERIVED_DATA)" \
 		-allowProvisioningUpdates -allowProvisioningDeviceRegistration build
 	xcrun devicectl device install app --device "$(DEVICE_NAME)" \
-		"$(PROJECT_DIR)/build/Build/Products/Debug-iphoneos/$(APP_NAME).app"
+		"$(DERIVED_DATA)/Build/Products/Debug-iphoneos/$(APP_NAME).app"
 	xcrun devicectl device process launch --device "$(DEVICE_NAME)" $(BUNDLE_ID)
 
 clean:
 	@echo "Cleaning build artifacts..."
-	rm -rf "$(PROJECT_DIR)/build"
-	xcodebuild -project "$(PROJECT_DIR)/$(APP_NAME).xcodeproj" -scheme "$(APP_NAME)" clean
+	rm -rf "$(DERIVED_DATA)"
+	$(XCODEBUILD) clean
 
 all: install format build
