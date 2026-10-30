@@ -63,9 +63,9 @@ struct RecurringSplitSection: View {
             }
             #else
             .sheet(isPresented: $showHelp) {
-                        helpContent
-                            .presentationDetents([.medium])
-                    }
+                helpContent
+                    .presentationDetents([.medium])
+            }
             #endif
         }
     }

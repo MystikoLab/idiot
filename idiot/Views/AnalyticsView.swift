@@ -574,23 +574,23 @@ struct AnalyticsView: View {
             }
         #else
             .sheet(isPresented: $showFilters) {
-                    NavigationStack {
-                        ScrollView {
-                            filtersContent
-                        }
-                        .toolbar {
-                            ToolbarItem(placement: .confirmationAction) {
-                                Button("Done") {
-                                    showFilters = false
-                                }
+                NavigationStack {
+                    ScrollView {
+                        filtersContent
+                    }
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") {
+                                showFilters = false
                             }
                         }
-                        .navigationTitle("Filters")
-                        .navigationBarTitleDisplayMode(.inline)
                     }
+                    .navigationTitle("Filters")
+                    .navigationBarTitleDisplayMode(.inline)
                 }
+            }
         #endif
-                .accessibilityLabel("Filters")
+            .accessibilityLabel("Filters")
     }
 
     private var rangeText: some View {
