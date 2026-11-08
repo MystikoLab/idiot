@@ -3,6 +3,7 @@ import SwiftData
 
 enum DefaultCategories {
     private static let didSeedKey = "didSeedCategories"
+    private static let didAddInvestmentsKey = "didAddInvestmentTypeCategory"
 
     static func seedIfNeeded(context: ModelContext) {
         guard !UserDefaults.standard.bool(forKey: didSeedKey) else {
@@ -30,6 +31,7 @@ enum DefaultCategories {
             Category(name: "Personal", type: .expense, colorHex: "#FF2D55", iconName: "person.fill", isSystem: true, sortOrder: 7),
             Category(name: "Salary", type: .income, colorHex: "#34C759", iconName: "dollarsign.circle.fill", isSystem: true, sortOrder: 1),
             Category(name: "Side Hustle", type: .income, colorHex: "#5AC8FA", iconName: "bag.fill", isSystem: true, sortOrder: 2),
+            investmentsCategory(sortOrder: 1),
         ]
 
         categories.forEach(context.insert)
@@ -39,6 +41,35 @@ enum DefaultCategories {
         } catch {
             assertionFailure("Failed to seed default categories: \(error.localizedDescription)")
         }
+    }
+
+    static func addMissingDefaults(context: ModelContext) {
+        guard !UserDefaults.standard.bool(forKey: didAddInvestmentsKey) else {
+            return
+        }
+
+        guard let categories = try? context.fetch(FetchDescriptor<Category>()) else { return }
+
+        let existing = categories.first {
+            $0.name.compare("Investments", options: .caseInsensitive) == .orderedSame
+        }
+        if let existing {
+            if existing.isSystem, existing.type == .expense {
+                existing.type = .investment
+                existing.colorHex = "#FFB300"
+                existing.limit = nil
+                existing.sortOrder = 1
+            }
+        } else if !categories.contains(where: { $0.type == .investment }) {
+            context.insert(investmentsCategory(sortOrder: 1))
+        }
+        try? context.save()
+
+        UserDefaults.standard.set(true, forKey: didAddInvestmentsKey)
+    }
+
+    private static func investmentsCategory(sortOrder: Int) -> Category {
+        Category(name: "Investments", type: .investment, colorHex: "#FFB300", iconName: "chart.line.uptrend.xyaxis", isSystem: true, sortOrder: sortOrder)
     }
 
     static func reconcileDuplicates(context: ModelContext) {

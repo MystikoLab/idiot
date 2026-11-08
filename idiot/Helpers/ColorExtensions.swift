@@ -50,4 +50,5 @@ extension Color {
     static let categoryYellow = Color(hex: "#FFCC00")
     static let categoryPink = Color(hex: "#FF2D55")
     static let categoryTeal = Color(hex: "#5AC8FA")
+    static let investment = Color(hex: "#FFB300")
 }

@@ -13,7 +13,7 @@ enum AnalyticsEngine {
     }
 
     static func netTotal(_ txs: [Transaction]) -> Double {
-        txs.reduce(0) { $0 + ($1.category?.type == .income ? $1.amount : -$1.amount) }
+        incomeTotal(txs) - expenseTotal(txs)
     }
 
     static func savingsRate(income: Double, net: Double) -> Double? {
@@ -33,7 +33,7 @@ enum AnalyticsEngine {
     }
 
     static func broughtForward(allTx: [Transaction], before start: Date) -> Double {
-        let txTotal = allTx.filter { $0.date < start }.reduce(0) { $0 + ($1.category?.type == .income ? $1.amount : -$1.amount) }
+        let txTotal = allTx.filter { $0.date < start }.reduce(0) { $0 + $1.signedCashAmount }
         return txTotal + OpeningBalance.amount
     }
 
@@ -59,7 +59,7 @@ enum AnalyticsEngine {
             let dayEnd = cursor.endOfDay
             balance += rangeTx
                 .filter { $0.date >= cursor && $0.date <= dayEnd }
-                .reduce(0) { $0 + ($1.category?.type == .income ? $1.amount : -$1.amount) }
+                .reduce(0) { $0 + $1.signedCashAmount }
             points.append(BalancePoint(date: cursor, balance: balance))
             guard let next = calendar.date(byAdding: .day, value: 1, to: cursor) else { break }
             cursor = next
@@ -107,6 +107,10 @@ enum AnalyticsEngine {
         let percent: Double?
     }
 
+    private static func categoryTotal(_ txs: [Transaction], type: CategoryType) -> Double {
+        type == .investment ? txs.netInvested : txs.reduce(0) { $0 + $1.amount }
+    }
+
     static func categoryDeltas(current: [Transaction], previous: [Transaction], categories: [Category]) -> [CategoryDelta] {
         var meta: [String: (colorHex: String, icon: String, type: CategoryType)] = [:]
         for category in categories {
@@ -120,8 +124,8 @@ enum AnalyticsEngine {
 
         return names.map { name in
             let info = meta[name] ?? fallback
-            let currentValue = currentGrouped[name]?.reduce(0) { $0 + $1.amount } ?? 0
-            let previousValue = previousGrouped[name]?.reduce(0) { $0 + $1.amount } ?? 0
+            let currentValue = categoryTotal(currentGrouped[name] ?? [], type: info.type)
+            let previousValue = categoryTotal(previousGrouped[name] ?? [], type: info.type)
             return CategoryDelta(
                 name: name,
                 colorHex: info.colorHex,
@@ -134,7 +138,7 @@ enum AnalyticsEngine {
         }
         .sorted {
             if $0.type != $1.type {
-                return $0.type == .expense
+                return $0.type.sortRank < $1.type.sortRank
             }
             if $0.current != $1.current {
                 return $0.current > $1.current
@@ -355,9 +359,9 @@ enum AnalyticsEngine {
         let upcoming = upcomingOccurrences(rules: eligibleRules, until: monthEnd, after: now)
 
         let committedTxs = monthTxs.filter { $0.recurringRuleID != nil && $0.date <= now }
-        let committedSoFarNet = committedTxs.reduce(0) { $0 + ($1.category?.type == .income ? $1.amount : -$1.amount) }
+        let committedSoFarNet = committedTxs.reduce(0) { $0 + $1.signedCashAmount }
         let committedRemainingNet = upcoming.reduce(0) { $0 + $1.amount }
-        let netSoFar = monthTxs.filter { $0.date <= now }.reduce(0) { $0 + ($1.category?.type == .income ? $1.amount : -$1.amount) }
+        let netSoFar = monthTxs.filter { $0.date <= now }.reduce(0) { $0 + $1.signedCashAmount }
         let discretionaryNetSoFar = netSoFar - committedSoFarNet
 
         let daysElapsed = max(1, calendar.dateComponents([.day], from: monthStart, to: now).day ?? 1)
@@ -431,7 +435,7 @@ enum AnalyticsEngine {
         let grouped = Dictionary(grouping: expenses) { calendar.component(.weekday, from: $0.date) }
         return (1 ... 7).map { weekday -> WeekdaySpend in
             let index = (weekday - calendar.firstWeekday + 7) % 7
-            let label = calendar.veryShortWeekdaySymbols[(weekday - 1) % 7]
+            let label = calendar.shortWeekdaySymbols[(weekday - 1) % 7]
             return WeekdaySpend(index: index, label: label, amount: grouped[weekday]?.reduce(0) { $0 + $1.amount } ?? 0)
         }
         .sorted { $0.index < $1.index }
@@ -469,5 +473,93 @@ enum AnalyticsEngine {
             result.append(HistogramBucket(lower: lower, upper: upper, count: inBucket.count, total: inBucket.reduce(0) { $0 + $1 }))
         }
         return result
+    }
+
+    // MARK: Investments
+
+    struct InvestmentFlow: Identifiable {
+        var id: Date {
+            bucket
+        }
+
+        let bucket: Date
+        let contributions: Double
+        let returns: Double
+    }
+
+    struct HoldingStat: Identifiable {
+        let id: String
+        let name: String
+        let colorHex: String
+        let iconName: String
+        let contributed: Double
+        let returned: Double
+        let transactionCount: Int
+        let lastActivity: Date?
+
+        var netInvested: Double {
+            contributed - returned
+        }
+
+        var returnRatio: Double? {
+            guard contributed > 0 else { return nil }
+            return returned / contributed * 100
+        }
+    }
+
+    struct InvestedPoint: Identifiable {
+        var id: Date {
+            date
+        }
+
+        let date: Date
+        let netInvested: Double
+    }
+
+    static func investmentFlows(_ txs: [Transaction], granularity: Granularity) -> [InvestmentFlow] {
+        Dictionary(grouping: txs.filter(\.isInvestment)) { $0.date.start(of: granularity) }
+            .map { bucket, items in
+                InvestmentFlow(bucket: bucket, contributions: items.investmentContributions, returns: items.investmentReturns)
+            }
+            .sorted { $0.bucket < $1.bucket }
+    }
+
+    static func investmentHoldings(_ txs: [Transaction]) -> [HoldingStat] {
+        Dictionary(grouping: txs.filter(\.isInvestment)) { $0.category?.id }
+            .compactMap { _, items -> HoldingStat? in
+                guard let category = items.first?.category else { return nil }
+                return HoldingStat(
+                    id: category.id.uuidString,
+                    name: category.name,
+                    colorHex: category.colorHex,
+                    iconName: category.iconName,
+                    contributed: items.investmentContributions,
+                    returned: items.investmentReturns,
+                    transactionCount: items.count,
+                    lastActivity: items.map(\.date).max()
+                )
+            }
+            .sorted {
+                if $0.netInvested != $1.netInvested {
+                    return $0.netInvested > $1.netInvested
+                }
+                return $0.name < $1.name
+            }
+    }
+
+    static func cumulativeInvestedSeries(allTx: [Transaction], rangeStart: Date, rangeEnd: Date) -> [InvestedPoint] {
+        let investments = allTx.filter(\.isInvestment)
+        var running = investments.filter { $0.date < rangeStart }.netInvested
+        var points = [InvestedPoint(date: rangeStart.startOfDay, netInvested: running)]
+        let inRange = Dictionary(grouping: investments.filter { $0.date >= rangeStart && $0.date <= rangeEnd }) { $0.date.startOfDay }
+        for day in inRange.keys.sorted() {
+            running += inRange[day]?.netInvested ?? 0
+            points.append(InvestedPoint(date: day, netInvested: running))
+        }
+        let endDay = min(rangeEnd, .now).startOfDay
+        if let last = points.last, last.date < endDay {
+            points.append(InvestedPoint(date: endDay, netInvested: running))
+        }
+        return points
     }
 }

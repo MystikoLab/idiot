@@ -32,12 +32,12 @@ struct SummaryBarView: View {
         let start = selectedMonth.startOfMonth
         let txTotal = allTransactions
             .filter { $0.date < start }
-            .reduce(0) { $0 + ($1.category?.type == .income ? $1.amount : -$1.amount) }
+            .reduce(0) { $0 + $1.signedCashAmount }
         return txTotal + OpeningBalance.amount
     }
 
     private var totalBalance: Double {
-        broughtForwardBalance + netTotal
+        broughtForwardBalance + transactions.reduce(0) { $0 + $1.signedCashAmount }
     }
 
     var body: some View {

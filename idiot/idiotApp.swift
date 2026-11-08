@@ -18,9 +18,13 @@ struct idiotApp: App {
             container = try ModelContainer(for: Category.self, Transaction.self, RecurringRule.self, configurations: configuration)
             let context = ModelContext(container)
             DefaultCategories.seedIfNeeded(context: context)
+            DefaultCategories.addMissingDefaults(context: context)
             DefaultCategories.reconcileDuplicates(context: context)
             RecurringEngine.materialize(context: context)
             CloudSyncMonitor.shared.start()
+            #if os(macOS)
+                MCPServerController.shared.configure(container: container)
+            #endif
         } catch {
             fatalError("Failed to create model container: \(error.localizedDescription)")
         }
@@ -30,13 +34,13 @@ struct idiotApp: App {
         WindowGroup {
             ContentView()
             #if os(macOS)
-                .frame(minWidth: 750, idealWidth: 750, maxWidth: 750)
-                .frame(idealHeight: 600)
+                .frame(minWidth: 880, idealWidth: 1120, minHeight: 620, idealHeight: 720)
             #endif
         }
         #if os(macOS)
-        .windowResizability(.contentSize)
-        .windowStyle(.hiddenTitleBar)
+        .defaultSize(width: 1120, height: 720)
+        .windowResizability(.contentMinSize)
+        .windowToolbarStyle(.unified(showsTitle: false))
         .commands {
             AnalyticsCommands()
         }

@@ -30,6 +30,7 @@ struct ContentView: View {
     #if os(iOS)
         @Environment(\.scenePhase) private var scenePhase
         @State private var isUnlocked = true
+        @AppStorage("hideAmounts") private var hideAmounts = false
     #endif
 
     @AppStorage("filterHiddenCategoryIDs") private var hiddenCategoryIDsData: String = ""
@@ -37,9 +38,15 @@ struct ContentView: View {
     @AppStorage("filterMaxAmount") private var maxAmountText = ""
     @AppStorage("filterShowIncome") private var showIncome = true
     @AppStorage("filterShowExpense") private var showExpense = true
+    @AppStorage("filterShowInvestment") private var showInvestment = true
     @State private var hiddenCategoryIDs: Set<Category.ID> = []
     @State private var isFilterStateLoaded = false
     @State private var showAddTransaction = false
+    @State private var editingTransaction: Transaction?
+
+    private var newTransactionDate: Date {
+        Calendar.current.isDate(selectedMonth, equalTo: .now, toGranularity: .month) ? .now : selectedMonth
+    }
 
     private var hiddenCategoryIDsBinding: Binding<Set<Category.ID>> {
         Binding {
@@ -93,6 +100,12 @@ struct ContentView: View {
             .sheet(isPresented: $showAnalytics) {
                 AnalyticsView()
             }
+            .sheet(isPresented: $showAddTransaction) {
+                TransactionFormView(transaction: nil, defaultDate: newTransactionDate)
+            }
+            .sheet(item: $editingTransaction) { transaction in
+                TransactionFormView(transaction: transaction)
+            }
             .onOpenURL { url in
                 switch url.host {
                 case "add":
@@ -119,39 +132,50 @@ struct ContentView: View {
 
     #if os(macOS)
         var macHome: some View {
-            VStack(spacing: 0) {
-                MonthlyHeaderView(
-                    selectedMonth: $selectedMonth,
-                    showSettings: $showSettings,
-                    showAnalytics: $showAnalytics
-                )
+            HSplitView {
                 WeeklyChartView(
                     selectedMonth: selectedMonth,
                     hiddenCategoryIDs: hiddenCategoryIDs,
                     minAmount: minAmount,
                     maxAmount: maxAmount,
                     showIncome: showIncome,
-                    showExpense: showExpense
+                    showExpense: showExpense,
+                    showInvestment: showInvestment
                 )
-                .padding(.top, 8)
+                .frame(minWidth: 480, idealWidth: 700, maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
                 TransactionListView(
                     selectedMonth: selectedMonth,
                     showAddTransaction: $showAddTransaction,
+                    editingTransaction: $editingTransaction,
                     hiddenCategoryIDs: hiddenCategoryIDsBinding,
                     minAmountText: $minAmountText,
                     maxAmountText: $maxAmountText,
                     showIncome: $showIncome,
-                    showExpense: $showExpense
+                    showExpense: $showExpense,
+                    showInvestment: $showInvestment
+                )
+                .frame(minWidth: 380, idealWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .toolbar {
+                MonthlyHeaderView(
+                    selectedMonth: $selectedMonth,
+                    showAddTransaction: $showAddTransaction,
+                    showSettings: $showSettings,
+                    showHelp: $showHelp
                 )
             }
-            .padding(.top, 32)
-            .textSelection(.enabled)
+            .sheet(isPresented: $showHelp) {
+                NavigationStack {
+                    HelpView()
+                }
+            }
         }
     #endif
 
     #if os(macOS)
         @Environment(\.openWindow) private var openWindow
+        @State private var showHelp = false
 
         private func openAnalyticsWindow() {
             openWindow(id: "analytics")
@@ -166,16 +190,19 @@ struct ContentView: View {
                         MonthPageView(
                             month: month,
                             showAddTransaction: $showAddTransaction,
+                            editingTransaction: $editingTransaction,
                             hiddenCategoryIDs: hiddenCategoryIDsBinding,
                             minAmountText: $minAmountText,
                             maxAmountText: $maxAmountText,
                             showIncome: $showIncome,
-                            showExpense: $showExpense
+                            showExpense: $showExpense,
+                            showInvestment: $showInvestment
                         )
                         .tag(month)
                     }
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
+                .environment(\.amountsHidden, hideAmounts)
                 .sheet(isPresented: $showHelpSheet) {
                     NavigationStack {
                         HelpView()
@@ -194,6 +221,16 @@ struct ContentView: View {
                         monthPickerButton
                     }
                     ToolbarItemGroup(placement: .topBarTrailing) {
+                        Button {
+                            withAnimation(.snappy(duration: 0.2)) {
+                                hideAmounts.toggle()
+                            }
+                        } label: {
+                            Image(systemName: hideAmounts ? "eye.slash" : "eye")
+                                .contentTransition(.symbolEffect(.replace))
+                        }
+                        .accessibilityLabel(hideAmounts ? "Show amounts" : "Hide amounts")
+
                         Button {
                             showAnalytics = true
                         } label: {
@@ -294,11 +331,13 @@ struct ContentView: View {
         struct MonthPageView: View {
             let month: Date
             @Binding var showAddTransaction: Bool
+            @Binding var editingTransaction: Transaction?
             @Binding var hiddenCategoryIDs: Set<Category.ID>
             @Binding var minAmountText: String
             @Binding var maxAmountText: String
             @Binding var showIncome: Bool
             @Binding var showExpense: Bool
+            @Binding var showInvestment: Bool
 
             var body: some View {
                 VStack(spacing: 0) {
@@ -308,18 +347,21 @@ struct ContentView: View {
                         minAmount: minAmount,
                         maxAmount: maxAmount,
                         showIncome: showIncome,
-                        showExpense: showExpense
+                        showExpense: showExpense,
+                        showInvestment: showInvestment
                     )
                     .padding(.top, 8)
 
                     TransactionListView(
                         selectedMonth: month,
                         showAddTransaction: $showAddTransaction,
+                        editingTransaction: $editingTransaction,
                         hiddenCategoryIDs: $hiddenCategoryIDs,
                         minAmountText: $minAmountText,
                         maxAmountText: $maxAmountText,
                         showIncome: $showIncome,
-                        showExpense: $showExpense
+                        showExpense: $showExpense,
+                        showInvestment: $showInvestment
                     )
                 }
             }

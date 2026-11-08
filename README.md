@@ -16,6 +16,7 @@ Track income and expenses across customizable categories, visualize spending wit
 - **Widgets** — Home screen widgets via `WidgetSnapshotWriter` snapshots.
 - **Past-month immutability** — Transactions in past months are locked from editing; the current month stays fully editable.
 - **Git-diff-style summary** — Monthly header shows `+$X` in green, `−$Y` in red, with bold net.
+- **Agent access (optional, macOS)** — A local MCP server lets agents such as Hermes query your finances. Off by default.
 
 ## Requirements
 
@@ -32,11 +33,29 @@ Track income and expenses across customizable categories, visualize spending wit
 make install   # install SwiftFormat
 make build     # format + build (macOS)
 make run       # format + build + launch the app
+make install-release  # signed Release build with iCloud, installed to /Applications
 make build-ios # build for iOS Simulator (iPhone 17 Pro)
 make run-ios   # build + install + launch on the simulator
 make run-device DEVICE_NAME="iPhone"  # build + install on a physical iPhone
 make clean     # remove build artifacts
 ```
+
+## Agent Access (MCP)
+
+The Mac app can serve your finances to a local AI agent over MCP (Streamable HTTP). It is off by default, listens only on `127.0.0.1:47821`, needs a bearer token, and runs only while the app is open. Data from your iPhone is available once it has synced through iCloud.
+
+To connect [Hermes](https://github.com/NousResearch/hermes-agent):
+
+1. Turn on **Settings > Agent Access (MCP) > Allow agent access**.
+2. Use **Copy Hermes Config** and paste the result into `~/.hermes/config.yaml`.
+3. Use **Copy Access Token** and paste the result into `~/.hermes/.env`.
+4. Run `/reload-mcp` in Hermes. Also run it after changing the write toggle, because the tool list is read when Hermes connects.
+
+Read tools: `get_month_summary`, `list_transactions`, `list_categories`, `list_recurring_rules`, `get_spending_trend`, `get_forecast`.
+
+Write tools, available only with **Allow agents to change transactions** on: `add_transaction`, `update_transaction`, `delete_transaction`. Past months are always locked for agents, even if the app's lock setting is off. The `trust: untrusted` line in the config makes Hermes ask for approval before each write.
+
+Anything an agent reads is sent to the AI model it is configured to use.
 
 ## Tech Stack
 

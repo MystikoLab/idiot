@@ -44,6 +44,7 @@ struct RecurringListView: View {
         switch type {
         case .income: "Auto Salary"
         case .expense: "Subscriptions"
+        case .investment: "Recurring Investments"
         case nil: "Recurring"
         }
     }

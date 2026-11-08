@@ -44,7 +44,7 @@ enum WidgetSnapshotWriter {
         let income = txSum(monthTxs, .income)
         let expense = txSum(monthTxs, .expense)
         let balance = transactions
-            .reduce(0) { $0 + (($1.category?.type == .income) ? $1.amount : -$1.amount) } + OpeningBalance.amount
+            .reduce(0) { $0 + $1.signedCashAmount } + OpeningBalance.amount
 
         let rows: [SnapshotRow] = monthTxs
             .prefix(5)
@@ -53,7 +53,7 @@ enum WidgetSnapshotWriter {
                     id: tx.id,
                     title: tx.title,
                     amount: tx.amount,
-                    isIncome: tx.category?.type == .income,
+                    isIncome: tx.signedCashAmount > 0,
                     date: tx.date,
                     colorHex: tx.category?.colorHex ?? "#8E8E93",
                     iconName: tx.category?.iconName ?? "tag.fill"

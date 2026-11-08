@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct TransactionRowView: View {
+    @Environment(\.amountsHidden) private var amountsHidden
     let transaction: Transaction
     let isOverLimit: Bool
     let lockPastMonths: Bool
@@ -12,6 +13,20 @@ struct TransactionRowView: View {
 
     private var isIncome: Bool {
         category?.type == .income
+    }
+
+    private var amountColor: Color {
+        if transaction.isInvestment {
+            return .investment
+        }
+        return isIncome ? .green : .primary
+    }
+
+    private var typeLabel: String {
+        if transaction.isInvestment {
+            return transaction.isInvestmentReturn ? "Investment return" : "Investment"
+        }
+        return isIncome ? "Income" : "Expense"
     }
 
     var body: some View {
@@ -55,9 +70,15 @@ struct TransactionRowView: View {
                     .lineLimit(2)
 
                 if let category {
-                    Text(category.name)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    if transaction.isInvestment {
+                        Text("\(category.name) · \(transaction.isInvestmentReturn ? "Return" : "Contribution")")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text(category.name)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
 
@@ -66,8 +87,9 @@ struct TransactionRowView: View {
             VStack(alignment: .trailing, spacing: 2) {
                 Text(amountText)
                     .font(.body.monospacedDigit().weight(.semibold))
-                    .foregroundStyle(isIncome ? Color.green : .primary)
+                    .foregroundStyle(amountColor)
                     .contentTransition(.numericText())
+                    .maskedAmount()
 
                 Text(transaction.date.formatted(style: .medium))
                     .font(.caption.monospacedDigit())
@@ -84,6 +106,7 @@ struct TransactionRowView: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
             .background(.red.opacity(0.12), in: Capsule())
+            .redacted(reason: amountsHidden ? .placeholder : [])
     }
 
     private var iconBadge: some View {
@@ -96,11 +119,14 @@ struct TransactionRowView: View {
     }
 
     private var amountText: String {
-        "\(isIncome ? "+" : "−")\(transaction.amount.formattedCurrency)"
+        "\(transaction.signedCashAmount >= 0 ? "+" : "−")\(transaction.amount.formattedCurrency)"
     }
 
     private var accessibilityText: String {
-        var parts = ["\(isIncome ? "Income" : "Expense"): \(transaction.title)", amountText]
+        var parts = ["\(typeLabel): \(transaction.title)"]
+        if !amountsHidden {
+            parts.append(amountText)
+        }
         if let category {
             parts.append("in \(category.name)")
         }

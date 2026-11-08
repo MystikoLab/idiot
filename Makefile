@@ -9,8 +9,10 @@ SWIFTFORMAT_VERSION = 0.55.5
 
 XCODEBUILD = xcodebuild -project "$(PROJECT_DIR)/$(APP_NAME).xcodeproj" -scheme "$(SCHEME_NAME)"
 MACOS_DEST = -destination "platform=macOS"
+RELEASE_APP = $(DERIVED_DATA)/Build/Products/Release/$(APP_NAME).app
+INSTALL_PATH = /Applications/Idiot.app
 
-.PHONY: install format build run build-ios run-ios build-device run-device clean all
+.PHONY: install install-release format build run build-ios run-ios build-device run-device clean all
 
 install:
 	@echo "Installing SwiftFormat $(SWIFTFORMAT_VERSION)..."
@@ -63,6 +65,18 @@ run-device: format
 	xcrun devicectl device install app --device "$(DEVICE_NAME)" \
 		"$(DERIVED_DATA)/Build/Products/Debug-iphoneos/$(APP_NAME).app"
 	xcrun devicectl device process launch --device "$(DEVICE_NAME)" $(BUNDLE_ID)
+
+install-release: format
+	@echo "Building signed $(APP_NAME) Release for macOS..."
+	$(XCODEBUILD) -configuration Release $(MACOS_DEST) -derivedDataPath "$(DERIVED_DATA)" \
+		-allowProvisioningUpdates -allowProvisioningDeviceRegistration build
+	@codesign -d --entitlements :- "$(RELEASE_APP)" 2>/dev/null | grep -q "icloud-container-identifiers" || \
+		{ echo "Error: the build has no iCloud entitlement."; exit 1; }
+	@echo "Installing to $(INSTALL_PATH)..."
+	-@pkill -x "$(APP_NAME)"
+	rm -rf "$(INSTALL_PATH)"
+	ditto "$(RELEASE_APP)" "$(INSTALL_PATH)"
+	open "$(INSTALL_PATH)"
 
 clean:
 	@echo "Cleaning build artifacts..."

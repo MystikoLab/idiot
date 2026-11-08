@@ -1,18 +1,29 @@
 import SwiftData
 import SwiftUI
 
+private struct TransactionDraft: Codable {
+    let title: String
+    let desc: String
+    let amount: String
+    let date: Date
+    let categoryID: UUID?
+    var isInvestmentReturn: Bool?
+}
+
 struct TransactionFormView: View {
     private let transaction: Transaction?
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Category.sortOrder) private var categories: [Category]
+    @AppStorage("transactionDraft") private var draftData = ""
 
     @State private var date: Date
     @State private var title = ""
     @State private var desc = ""
     @State private var amount = ""
     @State private var selectedCategory: Category?
+    @State private var isInvestmentReturn: Bool
     @State private var showValidation = false
     @State private var showDatePicker = false
     @FocusState private var titleFocused: Bool
@@ -24,6 +35,7 @@ struct TransactionFormView: View {
         _desc = State(initialValue: transaction?.desc ?? "")
         _amount = State(initialValue: transaction.map { String(format: "%.2f", $0.amount) } ?? "")
         _selectedCategory = State(initialValue: transaction?.category)
+        _isInvestmentReturn = State(initialValue: transaction?.isInvestmentReturn ?? false)
     }
 
     var body: some View {
@@ -121,12 +133,17 @@ struct TransactionFormView: View {
                             .foregroundStyle(.red)
                     }
                 }
+
+                if selectedCategory?.type == .investment {
+                    investmentFlowSection
+                }
             }
             .formStyle(.grouped)
             .navigationTitle(isEditing ? "Edit Transaction" : "Add Transaction")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
+                        clearDraft()
                         dismiss()
                     }
                 }
@@ -141,11 +158,68 @@ struct TransactionFormView: View {
             .frame(minWidth: 460, minHeight: 360)
             #endif
             .onAppear {
-                selectedCategory = selectedCategory ?? categories.first
                 if transaction == nil {
+                    restoreDraft()
                     titleFocused = true
                 }
+                selectedCategory = selectedCategory ?? categories.first
             }
+            .onChange(of: title) { saveDraft() }
+            .onChange(of: desc) { saveDraft() }
+            .onChange(of: amount) { saveDraft() }
+            .onChange(of: date) { saveDraft() }
+            .onChange(of: selectedCategory?.id) { saveDraft() }
+            .onChange(of: isInvestmentReturn) { saveDraft() }
+        }
+    }
+
+    private var investmentFlowSection: some View {
+        Section {
+            Picker("Direction", selection: $isInvestmentReturn) {
+                Text("Contribution").tag(false)
+                Text("Return").tag(true)
+            }
+            .pickerStyle(.segmented)
+        } header: {
+            Text("Investment")
+        } footer: {
+            Text(isInvestmentReturn
+                ? "Money coming back from this investment, such as a sale or a dividend."
+                : "Money you put into this investment.")
+        }
+    }
+
+    private func restoreDraft() {
+        guard let draft = try? JSONDecoder().decode(TransactionDraft.self, from: Data(draftData.utf8)) else { return }
+        title = draft.title
+        desc = draft.desc
+        amount = draft.amount
+        date = draft.date
+        selectedCategory = categories.first { $0.id == draft.categoryID }
+        isInvestmentReturn = draft.isInvestmentReturn ?? false
+    }
+
+    private func saveDraft() {
+        guard transaction == nil else { return }
+        guard !title.isEmpty || !desc.isEmpty || !amount.isEmpty else {
+            draftData = ""
+            return
+        }
+        let draft = TransactionDraft(
+            title: title,
+            desc: desc,
+            amount: amount,
+            date: date,
+            categoryID: selectedCategory?.id,
+            isInvestmentReturn: isInvestmentReturn
+        )
+        guard let data = try? JSONEncoder().encode(draft) else { return }
+        draftData = String(decoding: data, as: UTF8.self)
+    }
+
+    private func clearDraft() {
+        if transaction == nil {
+            draftData = ""
         }
     }
 
@@ -168,6 +242,7 @@ struct TransactionFormView: View {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedDesc = desc.trimmingCharacters(in: .whitespacesAndNewlines)
         let parsedAmount = Double(amount) ?? 0
+        let resolvedReturn = selectedCategory.type == .investment && isInvestmentReturn
 
         if let transaction {
             transaction.title = trimmedTitle
@@ -175,16 +250,19 @@ struct TransactionFormView: View {
             transaction.amount = parsedAmount
             transaction.date = date
             transaction.category = selectedCategory
+            transaction.isInvestmentReturn = resolvedReturn
         } else {
             modelContext.insert(Transaction(
                 title: trimmedTitle,
                 desc: trimmedDesc.isEmpty ? nil : trimmedDesc,
                 amount: parsedAmount,
                 date: date,
-                category: selectedCategory
+                category: selectedCategory,
+                isInvestmentReturn: resolvedReturn
             ))
         }
 
+        clearDraft()
         dismiss()
     }
 }

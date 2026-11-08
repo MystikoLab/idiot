@@ -10,6 +10,7 @@ struct AnalyticsView: View {
         case forecast
         case comparison
         case patterns
+        case investments
 
         var id: String {
             rawValue
@@ -23,6 +24,7 @@ struct AnalyticsView: View {
             case .forecast: "Forecast & Budgets"
             case .comparison: "Comparison & Recurring"
             case .patterns: "Spend Patterns"
+            case .investments: "Investments"
             }
         }
 
@@ -34,6 +36,7 @@ struct AnalyticsView: View {
             case .forecast: "wand.and.stars"
             case .comparison: "arrow.left.arrow.right.square"
             case .patterns: "clock.badge.questionmark"
+            case .investments: "dollarsign.arrow.circlepath"
             }
         }
     }
@@ -69,6 +72,7 @@ struct AnalyticsView: View {
     @AppStorage("analyticsGranularity") private var granularityRaw = Granularity.monthly.rawValue
     @AppStorage("analyticsShowIncome") private var showIncome = true
     @AppStorage("analyticsShowExpense") private var showExpense = true
+    @AppStorage("analyticsShowInvestment") private var showInvestment = true
     @AppStorage("analyticsMinAmount") private var minAmountText = ""
     @AppStorage("analyticsMaxAmount") private var maxAmountText = ""
     @AppStorage("analyticsSelectedCategoryIDs") private var selectedCategoryIDsData = ""
@@ -131,7 +135,7 @@ struct AnalyticsView: View {
     }
 
     private var hasActiveFilters: Bool {
-        !showIncome || !showExpense || !minAmountText.isEmpty || !maxAmountText.isEmpty || !selectedCategoryIDs.isEmpty
+        !showIncome || !showExpense || !showInvestment || !minAmountText.isEmpty || !maxAmountText.isEmpty || !selectedCategoryIDs.isEmpty
     }
 
     private var insightCards: [AnalyticsEngine.Insight] {
@@ -209,6 +213,9 @@ struct AnalyticsView: View {
             if type == .expense, !showExpense {
                 return false
             }
+            if type == .investment, !showInvestment {
+                return false
+            }
             if let minVal = minAmount, tx.amount < minVal {
                 return false
             }
@@ -265,13 +272,12 @@ struct AnalyticsView: View {
         .compactMap { _, txs -> AnalyticsPoint? in
             guard let first = txs.first else { return nil }
             let type = first.category?.type ?? .expense
-            let total = txs.reduce(0) { $0 + $1.amount }
             return AnalyticsPoint(
                 bucket: first.date.start(of: granularity),
                 categoryName: first.category?.name ?? "Uncategorized",
                 colorHex: first.category?.colorHex ?? "#8E8E93",
                 type: type,
-                amount: type == .expense ? -total : total
+                amount: type == .income ? txs.reduce(0) { $0 + $1.amount } : txs.reduce(0) { $0 + $1.signedCashAmount }
             )
         }
         .sorted {
@@ -305,14 +311,26 @@ struct AnalyticsView: View {
         incomeTotal - expenseTotal
     }
 
+    private var investedTotal: Double {
+        filteredTransactions.netInvested
+    }
+
+    private func typeTotal(_ type: CategoryType) -> Double {
+        switch type {
+        case .income: incomeTotal
+        case .expense: expenseTotal
+        case .investment: investedTotal
+        }
+    }
+
     private var categoryStats: [CategoryStat] {
         let grouped = Dictionary(grouping: filteredTransactions) { $0.category?.name ?? "Uncategorized" }
         let periods = periodCount
         return grouped.compactMap { name, txs -> CategoryStat? in
             guard let first = txs.first else { return nil }
             let type = first.category?.type ?? .expense
-            let total = txs.reduce(0) { $0 + $1.amount }
-            let typeTotal = type == .income ? incomeTotal : expenseTotal
+            let total = type == .investment ? txs.netInvested : txs.reduce(0) { $0 + $1.amount }
+            let typeTotal = typeTotal(type)
             return CategoryStat(
                 id: first.category?.id.uuidString ?? name,
                 name: name,
@@ -328,7 +346,7 @@ struct AnalyticsView: View {
         }
         .sorted {
             if $0.type != $1.type {
-                return $0.type == .expense
+                return $0.type.sortRank < $1.type.sortRank
             }
             if $0.total != $1.total {
                 return $0.total > $1.total
@@ -380,13 +398,13 @@ struct AnalyticsView: View {
             return CategoryBreakdown(
                 categoryName: name,
                 colorHex: first.category?.colorHex ?? "#8E8E93",
-                amount: txs.reduce(0) { $0 + $1.amount },
+                amount: first.isInvestment ? txs.netInvested : txs.reduce(0) { $0 + $1.amount },
                 type: first.category?.type ?? .expense
             )
         }
         .sorted { lhs, rhs in
             if lhs.type != rhs.type {
-                return lhs.type == .expense
+                return lhs.type.sortRank < rhs.type.sortRank
             }
             if lhs.type == .expense {
                 return lhs.amount > rhs.amount
@@ -420,6 +438,8 @@ struct AnalyticsView: View {
                     comparisonContent
                 case .patterns:
                     patternsContent
+                case .investments:
+                    investmentsContent
                 }
             }
             .padding()
@@ -472,6 +492,25 @@ struct AnalyticsView: View {
         VStack(alignment: .leading, spacing: 14) {
             SpendPatternsSection(weekdaySpend: weekdaySpend, histogram: histogram, periodSuffix: periodSuffix)
         }
+    }
+
+    private var investmentsContent: some View {
+        InvestmentsSection(
+            flows: AnalyticsEngine.investmentFlows(filteredTransactions, granularity: granularity),
+            holdings: AnalyticsEngine.investmentHoldings(filteredTransactions),
+            investedSeries: AnalyticsEngine.cumulativeInvestedSeries(
+                allTx: allTransactions.filter(isInSelectedCategories),
+                rangeStart: rangeStart,
+                rangeEnd: rangeEnd
+            ),
+            granularity: granularity
+        )
+    }
+
+    private func isInSelectedCategories(_ tx: Transaction) -> Bool {
+        guard !selectedCategoryIDs.isEmpty else { return true }
+        guard let category = tx.category else { return false }
+        return selectedCategoryIDs.contains(category.id)
     }
 
     private var toolbarRow: some View {
@@ -679,6 +718,12 @@ struct AnalyticsView: View {
                     .foregroundStyle(.red)
             }
             .fixedSize()
+
+            Toggle(isOn: $showInvestment) {
+                Text("Investments")
+                    .foregroundStyle(Color.investment)
+            }
+            .fixedSize()
         }
     }
 
@@ -747,6 +792,16 @@ struct AnalyticsView: View {
                         Text(expenseTotal.formattedCurrency)
                     }
                     .foregroundStyle(.red)
+
+                    if filteredTransactions.contains(where: \.isInvestment) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "chart.line.uptrend.xyaxis")
+                                .imageScale(.small)
+                            Text(investedTotal.formattedCurrency)
+                        }
+                        .foregroundStyle(Color.investment)
+                        .help("Invested: contributions minus returns")
+                    }
                 }
                 .font(.callout)
             }
@@ -1111,18 +1166,22 @@ struct AnalyticsView: View {
                 .padding(.vertical, 8)
         } else {
             VStack(alignment: .leading, spacing: 14) {
-                categoryGroup("Expenses", stats: categoryStats.filter { $0.type == .expense })
-                categoryGroup("Income", stats: categoryStats.filter { $0.type == .income })
+                categoryGroup("Expenses", type: .expense)
+                categoryGroup("Income", type: .income)
+                if categoryStats.contains(where: { $0.type == .investment }) {
+                    categoryGroup("Investments", type: .investment)
+                }
             }
             .padding(.vertical, 2)
         }
     }
 
-    private func categoryGroup(_ title: String, stats: [CategoryStat]) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+    private func categoryGroup(_ title: String, type: CategoryType) -> some View {
+        let stats = categoryStats.filter { $0.type == type }
+        return VStack(alignment: .leading, spacing: 6) {
             Text(title)
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(title == "Income" ? Color.green : Color.red)
+                .foregroundStyle(Self.color(for: type))
 
             if stats.isEmpty {
                 Text("None")
@@ -1155,7 +1214,7 @@ struct AnalyticsView: View {
                 Text(stat.total.formattedCurrency)
                     .fontWeight(.semibold)
                     .monospacedDigit()
-                    .foregroundStyle(stat.type == .income ? .green : .red)
+                    .foregroundStyle(Self.color(for: stat.type))
 
                 Text(String(format: "%.0f%%", stat.percent))
                     .font(.caption)
@@ -1172,7 +1231,23 @@ struct AnalyticsView: View {
                 .foregroundStyle(.secondary)
         }
         .font(.callout)
-        .help("\(String(format: "%.1f", stat.percent))% of total \(stat.type == .income ? "income" : "expenses")")
+        .help("\(String(format: "%.1f", stat.percent))% of total \(Self.typeNoun(stat.type))")
+    }
+
+    private static func color(for type: CategoryType) -> Color {
+        switch type {
+        case .income: .green
+        case .expense: .red
+        case .investment: .investment
+        }
+    }
+
+    private static func typeNoun(_ type: CategoryType) -> String {
+        switch type {
+        case .income: "income"
+        case .expense: "expenses"
+        case .investment: "investments"
+        }
     }
 
     private func transactionRow(_ tx: Transaction) -> some View {
@@ -1208,10 +1283,10 @@ struct AnalyticsView: View {
 
             Spacer()
 
-            Text("\(type == .income ? "+" : "−")\(tx.amount.formattedCurrency)")
+            Text("\(tx.signedCashAmount >= 0 ? "+" : "−")\(tx.amount.formattedCurrency)")
                 .fontWeight(.semibold)
                 .monospacedDigit()
-                .foregroundStyle(type == .income ? .green : .red)
+                .foregroundStyle(Self.color(for: type))
         }
         .font(.callout)
     }
@@ -1271,6 +1346,7 @@ struct AnalyticsView: View {
         toDate = .now
         showIncome = true
         showExpense = true
+        showInvestment = true
         minAmountText = ""
         maxAmountText = ""
         selectedCategoryIDs = []

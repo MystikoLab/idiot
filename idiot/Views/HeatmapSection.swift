@@ -259,6 +259,6 @@ struct HeatmapSection: View {
 
 private func orderedWeekdaySymbols(_ calendar: Calendar) -> [String] {
     return (0 ..< 7).map { offset in
-        calendar.veryShortWeekdaySymbols[(calendar.firstWeekday - 1 + offset) % 7]
+        calendar.shortWeekdaySymbols[(calendar.firstWeekday - 1 + offset) % 7]
     }
 }

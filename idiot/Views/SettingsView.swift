@@ -25,6 +25,10 @@ struct SettingsView: View {
         categories.filter { $0.type == .income }.sorted { $0.sortOrder < $1.sortOrder }
     }
 
+    private var investmentCategories: [Category] {
+        categories.filter { $0.type == .investment }.sorted { $0.sortOrder < $1.sortOrder }
+    }
+
     var body: some View {
         NavigationStack {
             List {
@@ -34,6 +38,9 @@ struct SettingsView: View {
                 lockSection
                 startingAmountSection
                 advancedSection
+                #if os(macOS)
+                    MCPSettingsSection()
+                #endif
                 dangerSection
             }
             .navigationTitle("Settings")
@@ -164,6 +171,7 @@ struct SettingsView: View {
             ForEach(expenseCategories, content: categoryListRow)
                 .accessibilityElement(children: .contain)
             ForEach(incomeCategories, content: categoryListRow)
+            ForEach(investmentCategories, content: categoryListRow)
         }
     }
 
@@ -353,6 +361,10 @@ struct SettingsCategoryRow: View {
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
                 }
+
+                if category.type == .investment {
+                    investmentSummary
+                }
             }
 
             if category.type == .expense, let limit = category.limit {
@@ -370,8 +382,40 @@ struct SettingsCategoryRow: View {
                 }
             }
         }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onEdit(category)
+        }
+        .contextMenu {
+            Button {
+                onEdit(category)
+            } label: {
+                Label("Edit", systemImage: "pencil")
+            }
+            Button(role: .destructive) {
+                onDelete(category)
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        }
         .accessibilityElement(children: .combine)
         .accessibilityHint("Opens category editor")
         .accessibilityAddTraits(.isButton)
+        .accessibilityAction {
+            onEdit(category)
+        }
+    }
+
+    private var investmentSummary: some View {
+        let transactions = category.transactions ?? []
+        let count = transactions.count
+        return VStack(alignment: .trailing, spacing: 1) {
+            Text(transactions.netInvested.formattedCurrency)
+                .foregroundStyle(Color.investment)
+                .monospacedDigit()
+            Text("\(count) transaction\(count == 1 ? "" : "s")")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
     }
 }

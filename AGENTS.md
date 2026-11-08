@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-A macOS + iOS SwiftUI finance tracking app with SwiftData persistence. The app tracks both income and expense transactions across customizable categories, visualizes spending with Swift Charts (weekly stacked bar charts + multi-month trend line charts + a full Analytics suite), enforces category budgets, supports recurring transaction rules, iCloud sync, widgets, and locks past-month data from editing.
+A macOS + iOS SwiftUI finance tracking app with SwiftData persistence. The app tracks both income and expense transactions across customizable categories, visualizes spending with Swift Charts (weekly income/expense/investment line chart (expense axis left, income axis right, investments on an unlabeled scale) + multi-month trend line charts + a full Analytics suite), enforces category budgets, supports recurring transaction rules, iCloud sync, widgets, and locks past-month data from editing.
 
 **Stack**: SwiftUI + SwiftData + Swift Charts + CloudKit  
 **Target**: macOS 14+ / iOS 17+  
@@ -21,11 +21,13 @@ idiot/
 │   ├── RecurrenceFrequency.swift
 │   └── DefaultCategories.swift
 ├── ViewModels/
-│   └── CloudSyncMonitor.swift
+│   ├── CloudSyncMonitor.swift
+│   └── MCPServerController.swift (macOS)
 ├── Views/
 │   ├── TransactionListView.swift
 │   ├── TransactionRowView.swift
 │   ├── TransactionFormView.swift
+│   ├── MCPSettingsSection.swift (macOS)
 │   ├── HelpView.swift (help & savings guide, opened from header ? button or Settings)
 │   ├── RecurringListView.swift
 │   ├── RecurringFormView.swift
@@ -37,7 +39,7 @@ idiot/
 │   ├── TrendChartView.swift
 │   └── AnalyticsView.swift (+ HeatmapSection, BalanceChartSection,
 │        InsightsSection, ForecastSection, PeriodComparisonSection,
-│        RecurringSplitSection, SpendPatternsSection)
+│        RecurringSplitSection, SpendPatternsSection, InvestmentsSection)
 ├── Helpers/
 │   ├── DateExtensions.swift
 │   ├── ColorExtensions.swift
@@ -45,7 +47,10 @@ idiot/
 │   ├── AnalyticsGranularity.swift
 │   ├── AnalyticsEngine.swift
 │   ├── RecurringEngine.swift
-│   └── WidgetSnapshotWriter.swift
+│   ├── WidgetSnapshotWriter.swift
+│   ├── MCPTools.swift (macOS)
+│   ├── MCPProtocol.swift (macOS)
+│   └── MCPHTTPServer.swift (macOS)
 ├── Resources/
 │   └── (Assets, etc.)
 ├── idiotApp.swift
@@ -57,7 +62,7 @@ idiot/
 **`Category`** — `@Model`
 - `id: UUID` (unique)
 - `name: String`
-- `type: CategoryType` (enum: `.income` / `.expense`)
+- `type: CategoryType` (enum: `.income` / `.expense` / `.investment`)
 - `limit: Double?` (monthly spending cap for expense categories; nil = no limit)
 - `colorHex: String` (hex color for chart segments and badges)
 - `iconName: String` (SF Symbol name)
@@ -72,19 +77,24 @@ idiot/
 - `date: Date`
 - `category: Category` (relationship)
 - `createdAt: Date`
+- `isInvestmentReturn: Bool` (investment categories only: `false` = contribution, `true` = return such as a sale or dividend)
 
 ### CategoryType Enum
 ```swift
 enum CategoryType: String, Codable, CaseIterable {
     case income
     case expense
+    case investment
 }
 ```
+
+Investment categories act as holdings that group contributions and returns. Net invested = contributions − returns (`[Transaction].netInvested`). Investments are neither income nor expense: net stays income − expenses, but the cash balance uses `Transaction.signedCashAmount`, so contributions lower it and returns raise it.
 
 ### Default Categories (seeded on first launch)
 
 **Expense**: Business, Utilities, Food, Groceries, Transport, Technology, Personal  
-**Income**: Salary, Side Hustle
+**Income**: Salary, Side Hustle  
+**Investment**: Investments
 
 All default categories have `isSystem = true` and appropriate SF Symbol icons + colors.
 
@@ -121,6 +131,7 @@ Transactions in any month **before** the current month are immutable:
 
 - Income items: green tint (`+`) prefix, green text highlight.
 - Expense items: red tint (`−`) prefix.
+- Investment items: amber (`Color.investment`), `−` for contributions and `+` for returns.
 - Over-limit expense items: stronger red background/badge.
 - Summary header: git-diff style — `+$X` in green, `−$Y` in red, net in bold black/white.
 - Chart bars: one color per category, using the category's stored `colorHex`.
@@ -134,7 +145,7 @@ ContentView
 │   ├── AnalyticsButton (chart icon -> AnalyticsView)
 │   ├── HelpButton (questionmark icon -> HelpView sheet)
 │   └── SettingsButton (gear icon -> SettingsView sheet)
-├── WeeklyChartView (Swift Charts, includes income/expense/net + balance summary)
+├── WeeklyChartView (summary tiles + line chart with a "Same scale" toggle)
 ├── TransactionListView
 │   ├── TransactionRowView (per item)
 │   │   └── ContextMenu: Edit, Copy, Delete
@@ -152,6 +163,8 @@ ContentView
     │   ├── Forecast & Budgets tab: end-of-month projection + budget board
     │   ├── Comparison & Recurring tab: month-vs-month table + committed/discretionary donut
     │   ├── Spend Patterns tab: weekday chart + size histogram
+    │   ├── Investments tab: contributed/returned/net tiles, contributions vs returns bars,
+    │   │   net-invested-over-time line, per-holding breakdown (InvestmentsSection)
     │   └── iOS toolbar wraps into two stacked rows (filters + range, tab + granularity)
     └── SettingsView
         ├── CategoryEditView (per category)
@@ -162,6 +175,10 @@ ContentView
 ## Analytics Engine
 
 `Helpers/AnalyticsEngine.swift` holds pure, static computations fed pre-filtered `[Transaction]` arrays (no duplicated `@Query` work inside sections). Sections in `Views/` take computed value props from `AnalyticsView`. Recurring spend is identified via `Transaction.recurringRuleID != nil`; rule cost is normalized to monthly via `RecurringRule.monthlyNormalizedCost`. Forecasts use current-month pace plus upcoming occurrences computed by `AnalyticsEngine.upcomingOccurrences`.
+
+## Agent Access (MCP)
+
+macOS only. `MCPHTTPServer` serves Streamable HTTP on `127.0.0.1:47821` from inside the app, and `MCPTools` runs on `container.mainContext` so changes reach the UI and CloudKit normally. Do not open the store from a separate process. Access is off by default and requires a bearer token kept in the keychain; write tools need a second toggle and always refuse past months.
 
 ## Phases (located in `phases/`)
 
@@ -179,6 +196,7 @@ ContentView
 | 10 | `10-trend-chart-polish.md` | Multi-month trend line chart, empty/error states, animations, a11y |
 | 11 | `11-subscriptions-ios-polish.md` | Subscriptions, iOS support, widgets, iCloud sync |
 | 12 | `12-analytics-expansion.md` | Analytics suite expansion (insights, balance, heatmap, forecast, comparison, recurring split, patterns) |
+| 13 | `13-agent-access.md` | Local MCP server for agents such as Hermes |
 
 ## Quick Reference
 

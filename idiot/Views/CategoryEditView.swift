@@ -18,6 +18,7 @@ struct CategoryEditView: View {
         ("bag.fill", "Shopping"),
         ("house.fill", "Home"),
         ("heart.fill", "Health"),
+        ("chart.line.uptrend.xyaxis", "Investments"),
     ]
 
     @Environment(\.dismiss) private var dismiss

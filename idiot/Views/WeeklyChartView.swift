@@ -9,9 +9,47 @@ struct WeeklyChartView: View {
     let maxAmount: Double?
     let showIncome: Bool
     let showExpense: Bool
+    let showInvestment: Bool
 
     @Query(sort: \Transaction.date) private var allTransactions: [Transaction]
     @Environment(\.modelContext) private var modelContext
+
+    var body: some View {
+        WeeklyChartContent(
+            allTransactions: allTransactions,
+            selectedMonth: selectedMonth,
+            hiddenCategoryIDs: hiddenCategoryIDs,
+            minAmount: minAmount,
+            maxAmount: maxAmount,
+            showIncome: showIncome,
+            showExpense: showExpense,
+            showInvestment: showInvestment
+        )
+        .onAppear {
+            writeWidgetSnapshotIfCurrentMonth()
+        }
+        .onChange(of: allTransactions) {
+            writeWidgetSnapshotIfCurrentMonth()
+        }
+    }
+
+    private func writeWidgetSnapshotIfCurrentMonth() {
+        guard Calendar.current.isDate(selectedMonth, equalTo: .now, toGranularity: .month) else { return }
+        WidgetSnapshotWriter.write(context: modelContext)
+    }
+}
+
+private struct WeeklyChartContent: View {
+    let selectedMonth: Date
+    let showIncome: Bool
+    let showExpense: Bool
+    let showInvestment: Bool
+    private let transactions: [Transaction]
+    private let recurringTransactions: [Transaction]
+    private let broughtForwardBalance: Double
+    private let weeklyTotals: [WeeklyTotals]
+
+    @AppStorage("weeklyChartSharedScale") private var sharedScale = false
     @State private var selectedWeekLabel: String?
     @State private var chartSize: CGSize = .zero
     @State private var yZoom: CGFloat = 1.0
@@ -19,11 +57,37 @@ struct WeeklyChartView: View {
     @State private var lastZoom: CGFloat = 1.0
     @State private var lastPan: Double = 0.0
 
-    private var transactions: [Transaction] {
+    init(
+        allTransactions: [Transaction],
+        selectedMonth: Date,
+        hiddenCategoryIDs: Set<Category.ID>,
+        minAmount: Double?,
+        maxAmount: Double?,
+        showIncome: Bool,
+        showExpense: Bool,
+        showInvestment: Bool
+    ) {
+        self.selectedMonth = selectedMonth
+        self.showIncome = showIncome
+        self.showExpense = showExpense
+        self.showInvestment = showInvestment
+
         let start = selectedMonth.startOfMonth
         let end = Calendar.current.date(byAdding: .month, value: 1, to: start) ?? selectedMonth.endOfMonth
-        return allTransactions.filter { tx in
-            guard tx.date >= start, tx.date < end else { return false }
+        var priorTotal = 0.0
+        var monthTransactions: [Transaction] = []
+        for tx in allTransactions {
+            let date = tx.date
+            if date < start {
+                priorTotal += tx.signedCashAmount
+            } else if date < end {
+                monthTransactions.append(tx)
+            }
+        }
+        broughtForwardBalance = priorTotal + OpeningBalance.amount
+        recurringTransactions = monthTransactions.filter { $0.recurringRuleID != nil }
+
+        let filtered = monthTransactions.filter { tx in
             if let cat = tx.category {
                 if hiddenCategoryIDs.contains(cat.id) {
                     return false
@@ -32,6 +96,9 @@ struct WeeklyChartView: View {
                     return false
                 }
                 if !showExpense, cat.type == .expense {
+                    return false
+                }
+                if !showInvestment, cat.type == .investment {
                     return false
                 }
             }
@@ -43,111 +110,246 @@ struct WeeklyChartView: View {
             }
             return true
         }
+        transactions = filtered
+
+        let weekRange = Calendar.current.range(of: .weekOfMonth, in: .month, for: selectedMonth) ?? 1 ..< 1
+        let byWeek = Dictionary(grouping: filtered) { $0.date.weekOfMonth }
+        weeklyTotals = weekRange.map { week in
+            let weekTxs = byWeek[week] ?? []
+            return WeeklyTotals(
+                week: week,
+                weekLabel: Date.weekDateRangeLabel(weekNumber: week, in: selectedMonth),
+                income: weekTxs.filter { $0.category?.type == .income }.reduce(0) { $0 + $1.amount },
+                expense: weekTxs.filter { $0.category?.type == .expense }.reduce(0) { $0 + $1.amount },
+                invested: weekTxs.netInvested
+            )
+        }
     }
 
-    private var weeklyData: [WeeklyCategoryAmount] {
-        let weekRange = Calendar.current.range(of: .weekOfMonth, in: .month, for: selectedMonth) ?? 1 ..< 1
-        var result: [WeeklyCategoryAmount] = []
-
-        for week in weekRange {
-            let weekTxs = transactions.filter { $0.date.weekOfMonth == week }
-            let label = Date.weekDateRangeLabel(weekNumber: week, in: selectedMonth)
-            let grouped = Dictionary(grouping: weekTxs) { $0.category?.name ?? "Uncategorized" }
-
-            for (name, txs) in grouped {
-                guard let category = txs.first?.category else { continue }
-                let amount = txs.reduce(0) { $0 + $1.amount }
-                result.append(WeeklyCategoryAmount(
-                    week: week,
-                    weekLabel: label,
-                    categoryName: name,
-                    categoryColor: category.colorHex,
-                    amount: category.type == .expense ? amount : -amount
+    private var chartPoints: [WeeklyLinePoint] {
+        let expenseScale = sharedScale ? sharedAxisMax : expenseAxisMax
+        let incomeScale = sharedScale ? sharedAxisMax : incomeAxisMax
+        let investmentScale = sharedScale ? sharedAxisMax : investmentAxisMax
+        return weeklyTotals.flatMap { totals in
+            var points: [WeeklyLinePoint] = []
+            if showExpense {
+                points.append(WeeklyLinePoint(
+                    week: totals.week,
+                    weekLabel: totals.weekLabel,
+                    series: "Expenses",
+                    amount: totals.expense,
+                    normalized: totals.expense / expenseScale
                 ))
             }
-        }
-
-        return result.sorted {
-            if $0.week != $1.week {
-                return $0.week < $1.week
+            if showIncome {
+                points.append(WeeklyLinePoint(
+                    week: totals.week,
+                    weekLabel: totals.weekLabel,
+                    series: "Income",
+                    amount: totals.income,
+                    normalized: totals.income / incomeScale
+                ))
             }
-            if $0.amount >= 0, $1.amount < 0 {
-                return true
+            if showInvestment, hasInvestments {
+                points.append(WeeklyLinePoint(
+                    week: totals.week,
+                    weekLabel: totals.weekLabel,
+                    series: "Invested",
+                    amount: totals.invested,
+                    normalized: totals.invested / investmentScale
+                ))
             }
-            if $0.amount < 0, $1.amount >= 0 {
-                return false
-            }
-            if $0.amount < 0, $1.amount < 0 {
-                return $0.amount < $1.amount
-            }
-            return $0.amount > $1.amount
-        }
-    }
-
-    private var colorDomain: [String] {
-        Array(Set(weeklyData.map(\.categoryName))).sorted()
-    }
-
-    private var colorRange: [Color] {
-        colorDomain.map { name in
-            let hex = weeklyData.first { $0.categoryName == name }?.categoryColor ?? "#8E8E93"
-            return Color(hex: hex)
+            return points
         }
     }
 
-    private var maxAbsoluteAmount: Double {
-        let positive = Dictionary(grouping: weeklyData.filter { $0.amount > 0 }, by: \.week)
-            .mapValues { items in items.reduce(0) { $0 + $1.amount } }
-        let negative = Dictionary(grouping: weeklyData.filter { $0.amount < 0 }, by: \.week)
-            .mapValues { items in abs(items.reduce(0) { $0 + $1.amount }) }
-        let maxVal = max(positive.values.max() ?? 0, negative.values.max() ?? 0)
-        guard maxVal > 0 else { return 1 }
-        return maxVal * 1.15
+    private var expenseAxisMax: Double {
+        Self.niceAxisMax(weeklyTotals.map(\.expense).max() ?? 0)
+    }
+
+    private var incomeAxisMax: Double {
+        Self.niceAxisMax(weeklyTotals.map(\.income).max() ?? 0)
+    }
+
+    private var sharedAxisMax: Double {
+        var values: [Double] = []
+        if showExpense {
+            values += weeklyTotals.map(\.expense)
+        }
+        if showIncome {
+            values += weeklyTotals.map(\.income)
+        }
+        if showInvestment {
+            values += weeklyTotals.map { abs($0.invested) }
+        }
+        return Self.niceAxisMax(values.max() ?? 0)
+    }
+
+    private var investmentAxisMax: Double {
+        Self.niceAxisMax(weeklyTotals.map { abs($0.invested) }.max() ?? 0)
+    }
+
+    private var seriesDomain: [String] {
+        var series: [String] = []
+        if showExpense {
+            series.append("Expenses")
+        }
+        if showIncome {
+            series.append("Income")
+        }
+        if showInvestment, hasInvestments {
+            series.append("Invested")
+        }
+        return series
+    }
+
+    private static func seriesColor(_ series: String) -> Color {
+        switch series {
+        case "Expenses": .red
+        case "Income": .green
+        default: .investment
+        }
+    }
+
+    private var hasInvestments: Bool {
+        transactions.contains(where: \.isInvestment)
+    }
+
+    private var baseLowerBound: Double {
+        min(0, chartPoints.map(\.normalized).min() ?? 0)
+    }
+
+    private static func niceAxisMax(_ value: Double) -> Double {
+        guard value > 0 else { return 100 }
+        let padded = value * 1.1
+        let magnitude = pow(10, floor(log10(padded)))
+        let fraction = padded / magnitude
+        let step = [1.0, 2, 4, 6, 8, 10].first { fraction <= $0 } ?? 10
+        return step * magnitude
+    }
+
+    private var axisTickValues: [Double] {
+        let level = max(0, floor(log2(Double(yZoom))))
+        let step = 0.25 / pow(2, level)
+        let domain = yAxisDomain
+        let first = (domain.lowerBound / step).rounded(.up)
+        let last = (domain.upperBound / step).rounded(.down)
+        guard first <= last else { return [] }
+        return stride(from: first, through: last, by: 1).map { $0 * step }.filter { $0 >= 0 }
     }
 
     private var titleBlock: some View {
-        Text("Weekly Overview")
-            .font(.title2.weight(.semibold))
+        HStack {
+            Text("Weekly Overview")
+                .font(.title2.weight(.semibold))
+            Spacer(minLength: 8)
+            scaleToggle
+        }
     }
 
-    private func summaryBlock(alignment: HorizontalAlignment) -> some View {
-        VStack(alignment: alignment, spacing: 2) {
-            Text(monthlyNet.formattedCurrency)
-                .font(.title2.weight(.bold))
-                .monospacedDigit()
-                .foregroundStyle(monthlyNet >= 0 ? Color.green : .red)
-                .contentTransition(.numericText())
-
-            HStack(spacing: 12) {
-                HStack(spacing: 4) {
-                    Text("+")
-                        .foregroundStyle(.green)
-                    Text(monthlyIncome.formattedCurrency)
-                        .foregroundStyle(.green)
-                }
-                HStack(spacing: 4) {
-                    Text("−")
-                        .foregroundStyle(.red)
-                    Text(monthlyExpenses.formattedCurrency)
-                        .foregroundStyle(.red)
-                }
-            }
-            .font(.callout.monospacedDigit())
-
-            Text("Balance: \(totalBalance.formattedCurrency)")
-                .font(.caption.monospacedDigit().weight(.semibold))
-                .foregroundStyle(balanceColor)
-                .accessibilityHint("Includes \(broughtForwardBalance.formattedCurrency) brought forward")
+    private var scaleToggle: some View {
+        Toggle(isOn: $sharedScale.animation(.snappy(duration: 0.3))) {
+            Label("Same scale", systemImage: "ruler")
+                .font(.caption.weight(.medium))
         }
+        .toggleStyle(.button)
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .help(sharedScale ? "All lines share one scale. Click for separate scales." : "Each line has its own scale. Click to put them on one scale.")
+        .accessibilityHint("Toggles whether income, expenses and investments share one axis")
+    }
+
+    private var netTile: some View {
+        summaryTile("Net", value: monthlyNet.formattedCurrency, color: monthlyNet >= 0 ? .green : .red)
+    }
+
+    private var incomeTile: some View {
+        summaryTile("Income", value: "+\(monthlyIncome.formattedCurrency)", color: .green)
+    }
+
+    private var expensesTile: some View {
+        summaryTile("Expenses", value: "−\(monthlyExpenses.formattedCurrency)", color: .red)
+    }
+
+    private var investedTile: some View {
+        summaryTile("Invested", value: monthlyInvested.formattedCurrency, color: .investment)
+            .help("Contributions minus returns this month")
+    }
+
+    private var balanceTile: some View {
+        summaryTile("Balance", value: totalBalance.formattedCurrency, color: balanceColor)
+            .accessibilityHint("Includes \(broughtForwardBalance.formattedCurrency) brought forward")
+            .help("Includes \(broughtForwardBalance.formattedCurrency) brought forward")
+    }
+
+    private var summaryTilesRow: some View {
+        HStack(spacing: 8) {
+            netTile
+            incomeTile
+            expensesTile
+            if hasInvestments {
+                investedTile
+            }
+            balanceTile
+        }
+    }
+
+    private var summaryTiles: some View {
+        Group {
+            #if os(macOS)
+                summaryTilesRow
+            #else
+                ViewThatFits(in: .horizontal) {
+                    summaryTilesRow
+                    Grid(horizontalSpacing: 8, verticalSpacing: 8) {
+                        GridRow {
+                            netTile
+                            balanceTile
+                        }
+                        GridRow {
+                            incomeTile
+                            expensesTile
+                        }
+                        if hasInvestments {
+                            GridRow {
+                                investedTile
+                                    .gridCellColumns(2)
+                            }
+                        }
+                    }
+                }
+            #endif
+        }
+        .textSelection(.enabled)
         .animation(.snappy(duration: 0.25), value: monthlyNet)
         .animation(.snappy(duration: 0.25), value: totalBalance)
+    }
+
+    private func summaryTile(_ title: String, value: String, color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.title3.weight(.semibold).monospacedDigit())
+                .foregroundStyle(color)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+                .contentTransition(.numericText())
+                .maskedAmount()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
     // MARK: - Accessibility labels
 
     private var yAxisDomain: ClosedRange<Double> {
-        let range = maxAbsoluteAmount / Double(yZoom)
-        return (-range + yPan) ... (range + yPan)
+        let lower = baseLowerBound + yPan
+        let span = (1.0 - baseLowerBound) / Double(yZoom)
+        return lower ... (lower + span)
     }
 
     private var monthlyIncome: Double {
@@ -162,22 +364,12 @@ struct WeeklyChartView: View {
         monthlyIncome - monthlyExpenses
     }
 
-    private var broughtForwardBalance: Double {
-        let start = selectedMonth.startOfMonth
-        let txTotal = allTransactions
-            .filter { $0.date < start }
-            .reduce(0) { $0 + ($1.category?.type == .income ? $1.amount : -$1.amount) }
-        return txTotal + OpeningBalance.amount
+    private var monthlyInvested: Double {
+        transactions.netInvested
     }
 
     private var totalBalance: Double {
-        broughtForwardBalance + monthlyNet
-    }
-
-    private var recurringTransactions: [Transaction] {
-        let start = selectedMonth.startOfMonth
-        let end = Calendar.current.date(byAdding: .month, value: 1, to: start) ?? start
-        return allTransactions.filter { $0.recurringRuleID != nil && $0.date >= start && $0.date < end }
+        broughtForwardBalance + monthlyNet - monthlyInvested
     }
 
     private var recurringCount: Int {
@@ -212,13 +404,17 @@ struct WeeklyChartView: View {
         selectedWeekDetails.filter { $0.type == .income }.reduce(0) { $0 + $1.amount }
     }
 
+    private var selectedInvestedTotal: Double {
+        selectedWeekDetails.filter { $0.type == .investment }.reduce(0) { $0 + $1.amount }
+    }
+
     private var selectedNetTotal: Double {
         selectedIncomeTotal - selectedExpensesTotal
     }
 
     private var selectedWeekNumber: Int? {
         guard let selectedWeekLabel else { return nil }
-        return weeklyData.first(where: { $0.weekLabel == selectedWeekLabel })?.week
+        return weeklyTotals.first(where: { $0.weekLabel == selectedWeekLabel })?.week
     }
 
     private var selectedWeekDetails: [CategoryBreakdown] {
@@ -231,13 +427,13 @@ struct WeeklyChartView: View {
             return CategoryBreakdown(
                 categoryName: name,
                 colorHex: category.colorHex,
-                amount: txs.reduce(0) { $0 + $1.amount },
+                amount: category.type == .investment ? txs.netInvested : txs.reduce(0) { $0 + $1.amount },
                 type: category.type
             )
         }
         .sorted { lhs, rhs in
             if lhs.type != rhs.type {
-                return lhs.type == .expense
+                return lhs.type.sortRank < rhs.type.sortRank
             }
             if lhs.type == .expense {
                 return lhs.amount > rhs.amount
@@ -248,17 +444,9 @@ struct WeeklyChartView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .top) {
-                    titleBlock
-                    Spacer(minLength: 16)
-                    summaryBlock(alignment: .trailing)
-                }
-                VStack(alignment: .leading, spacing: 8) {
-                    titleBlock
-                    summaryBlock(alignment: .leading)
-                }
-            }
+            summaryTiles
+            titleBlock
+                .padding(.top, 6)
 
             if recurringCount > 0 {
                 Text([
@@ -270,25 +458,76 @@ struct WeeklyChartView: View {
                 .joined(separator: " · "))
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .maskedAmount()
             }
 
-            Chart(weeklyData) { item in
-                BarMark(
-                    x: .value("Week", item.weekLabel),
-                    y: .value("Amount", item.amount)
+            Chart(chartPoints) { point in
+                LineMark(
+                    x: .value("Week", point.weekLabel),
+                    y: .value("Amount", point.normalized),
+                    series: .value("Type", point.series)
                 )
-                .foregroundStyle(by: .value("Category", item.categoryName))
-                .accessibilityLabel("\(item.categoryName), week \(item.week)")
-                .accessibilityValue(item.amount.formattedCurrency)
+                .foregroundStyle(by: .value("Type", point.series))
+                .interpolationMethod(.monotone)
+                .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+
+                PointMark(
+                    x: .value("Week", point.weekLabel),
+                    y: .value("Amount", point.normalized)
+                )
+                .foregroundStyle(by: .value("Type", point.series))
+                .symbolSize(selectedWeekLabel == point.weekLabel ? 80 : 30)
+                .accessibilityLabel("\(point.series), week \(point.week)")
+                .accessibilityValue(point.amount.formattedCurrency)
+
+                if baseLowerBound < 0 {
+                    RuleMark(y: .value("Zero", 0))
+                        .foregroundStyle(.secondary.opacity(0.4))
+                        .lineStyle(StrokeStyle(lineWidth: 1))
+                }
+
+                if let selectedWeekLabel, selectedWeekLabel == point.weekLabel {
+                    RuleMark(x: .value("Week", selectedWeekLabel))
+                        .foregroundStyle(.secondary.opacity(0.3))
+                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                }
             }
-            .chartForegroundStyleScale(domain: colorDomain, range: colorRange)
+            .chartForegroundStyleScale(domain: seriesDomain, range: seriesDomain.map(Self.seriesColor))
             .chartYScale(domain: yAxisDomain)
             .chartYAxis {
-                AxisMarks { value in
-                    AxisGridLine()
-                    AxisValueLabel {
-                        if let amount = value.as(Double.self) {
-                            Text(abs(amount).formattedCurrency)
+                if sharedScale {
+                    AxisMarks(position: .leading, values: axisTickValues) { value in
+                        AxisGridLine()
+                        AxisValueLabel {
+                            if let fraction = value.as(Double.self) {
+                                Text((fraction * sharedAxisMax).formattedCurrency)
+                                    .maskedAmount()
+                            }
+                        }
+                    }
+                } else if showExpense {
+                    AxisMarks(position: .leading, values: axisTickValues) { value in
+                        AxisGridLine()
+                        AxisValueLabel {
+                            if let fraction = value.as(Double.self) {
+                                Text((fraction * expenseAxisMax).formattedCurrency)
+                                    .foregroundStyle(.red)
+                                    .maskedAmount()
+                            }
+                        }
+                    }
+                }
+                if !sharedScale, showIncome {
+                    AxisMarks(position: .trailing, values: axisTickValues) { value in
+                        if !showExpense {
+                            AxisGridLine()
+                        }
+                        AxisValueLabel {
+                            if let fraction = value.as(Double.self) {
+                                Text((fraction * incomeAxisMax).formattedCurrency)
+                                    .foregroundStyle(.green)
+                                    .maskedAmount()
+                            }
                         }
                     }
                 }
@@ -319,9 +558,25 @@ struct WeeklyChartView: View {
                         }
                 }
             }
+            #if os(macOS)
+            .padding(.vertical, 8)
+            .frame(minHeight: 280, maxHeight: .infinity)
+            #else
+            .padding(.vertical, 8)
             .frame(height: 320)
+            #endif
             .clipped()
             #if os(macOS)
+                .overlay(alignment: .topLeading) {
+                    if selectedWeekNumber != nil, !selectedWeekDetails.isEmpty,
+                       let label = selectedWeekLabel
+                    {
+                        weekDetailCard(label)
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+                            .frame(width: 260)
+                            .padding(6)
+                    }
+                }
                 .background(ScrollWheelHandler { delta in
                     let factor = exp(delta * 0.02)
                     yZoom = max(1.0, yZoom * factor)
@@ -339,9 +594,9 @@ struct WeeklyChartView: View {
                 .simultaneousGesture(
                     DragGesture()
                         .onChanged { value in
-                            let range = maxAbsoluteAmount / Double(yZoom)
+                            let span = (1.0 - baseLowerBound) / Double(yZoom)
                             let chartH = max(chartSize.height, 320)
-                            yPan = lastPan - Double(value.translation.height) / Double(chartH) * 2 * range
+                            yPan = lastPan + Double(value.translation.height) / Double(chartH) * span
                         }
                         .onEnded { _ in
                             lastPan = yPan
@@ -368,11 +623,13 @@ struct WeeklyChartView: View {
                 }
             #endif
 
-            if selectedWeekNumber != nil, !selectedWeekDetails.isEmpty,
-               let label = selectedWeekLabel
-            {
-                weekDetailCard(label)
-            }
+            #if os(iOS)
+                if selectedWeekNumber != nil, !selectedWeekDetails.isEmpty,
+                   let label = selectedWeekLabel
+                {
+                    weekDetailCard(label)
+                }
+            #endif
         }
         .animation(.snappy(duration: 0.25), value: selectedWeekLabel)
         .padding(16)
@@ -391,12 +648,6 @@ struct WeeklyChartView: View {
             .padding(.horizontal, 16)
             .padding(.top, 12)
             .padding(.bottom, 4)
-            .onAppear {
-                WidgetSnapshotWriter.write(context: modelContext)
-            }
-            .onChange(of: allTransactions) {
-                WidgetSnapshotWriter.write(context: modelContext)
-            }
     }
 
     private func weekDetailCard(_ label: String) -> some View {
@@ -428,6 +679,7 @@ struct WeeklyChartView: View {
                     Spacer()
                     Text(detail.amount.formattedCurrency)
                         .fontWeight(.semibold)
+                        .maskedAmount()
                 }
                 .font(.caption)
             }
@@ -441,6 +693,18 @@ struct WeeklyChartView: View {
                     Text(selectedExpensesTotal.formattedCurrency)
                         .font(.caption)
                         .foregroundStyle(.red)
+                        .maskedAmount()
+                }
+            }
+            if selectedInvestedTotal != 0 {
+                HStack {
+                    Text("Invested").font(.caption)
+                        .foregroundStyle(Color.investment)
+                    Spacer()
+                    Text(selectedInvestedTotal.formattedCurrency)
+                        .font(.caption)
+                        .foregroundStyle(Color.investment)
+                        .maskedAmount()
                 }
             }
             if selectedIncomeTotal > 0 {
@@ -451,6 +715,7 @@ struct WeeklyChartView: View {
                     Text(selectedIncomeTotal.formattedCurrency)
                         .font(.caption)
                         .foregroundStyle(.green)
+                        .maskedAmount()
                 }
             }
             HStack {
@@ -458,6 +723,7 @@ struct WeeklyChartView: View {
                 Spacer()
                 Text(selectedNetTotal.formattedCurrency)
                     .font(.caption.weight(.bold))
+                    .maskedAmount()
             }
         }
         .padding(10)
@@ -481,13 +747,24 @@ struct SizePreferenceKey: PreferenceKey {
     }
 }
 
-struct WeeklyCategoryAmount: Identifiable {
-    let id = UUID()
+struct WeeklyTotals {
     let week: Int
     let weekLabel: String
-    let categoryName: String
-    let categoryColor: String
+    let income: Double
+    let expense: Double
+    let invested: Double
+}
+
+struct WeeklyLinePoint: Identifiable {
+    var id: String {
+        "\(series)-\(week)"
+    }
+
+    let week: Int
+    let weekLabel: String
+    let series: String
     let amount: Double
+    let normalized: Double
 }
 
 struct CategoryBreakdown {
