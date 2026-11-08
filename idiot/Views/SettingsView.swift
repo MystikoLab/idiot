@@ -8,6 +8,9 @@ struct SettingsView: View {
     @Query private var transactions: [Transaction]
 
     @AppStorage("lockPastMonths") private var lockPastMonths = true
+    #if os(macOS)
+        @AppStorage("showMenuBarExtra") private var showMenuBarExtra = true
+    #endif
     @State private var showAddCategory = false
     @State private var startingAmountText: String = ""
     @State private var editingCategory: Category?
@@ -39,6 +42,7 @@ struct SettingsView: View {
                 startingAmountSection
                 advancedSection
                 #if os(macOS)
+                    menuBarSection
                     MCPSettingsSection()
                 #endif
                 dangerSection
@@ -211,6 +215,16 @@ struct SettingsView: View {
             Text("When enabled, transactions in previous months cannot be edited, copied, or deleted.")
         }
     }
+
+    #if os(macOS)
+        private var menuBarSection: some View {
+            Section {
+                Toggle("Show in menu bar", isOn: $showMenuBarExtra)
+            } footer: {
+                Text("Shows this month's totals, budgets and quick actions from the menu bar.")
+            }
+        }
+    #endif
 
     private var startingAmountSection: some View {
         Section {

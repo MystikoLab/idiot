@@ -53,6 +53,11 @@
             """
         }
 
+        var claudeCodeCommand: String? {
+            guard let token = currentToken() else { return nil }
+            return "claude mcp add --transport http --scope user idiot \(endpoint) --header \"Authorization: Bearer \(token)\""
+        }
+
         private var container: ModelContainer?
         private var server: MCPHTTPServer?
         private var token = ""

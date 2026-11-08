@@ -23,6 +23,14 @@
                             .foregroundStyle(.secondary)
                     }
 
+                    Button {
+                        if let command = controller.claudeCodeCommand {
+                            copy(command)
+                        }
+                    } label: {
+                        Label("Copy Claude Code Setup Command", systemImage: "terminal")
+                    }
+
                     Text(controller.hermesConfig)
                         .font(.caption.monospaced())
                         .textSelection(.enabled)
@@ -64,9 +72,9 @@
 
         private var footerText: String {
             if controller.isEnabled {
-                return "Add the config to ~/.hermes/config.yaml and the token to ~/.hermes/.env, then run /reload-mcp. Agents can reach your finances only while Idiot is open on this Mac, and anything they read is sent to the AI model they use."
+                return "Claude Code: paste the setup command in Terminal once, then ask Claude about your finances in any session. The command contains your access token, which Claude Code saves in ~/.claude.json. Hermes: add the config to ~/.hermes/config.yaml and the token to ~/.hermes/.env, then run /reload-mcp. Agents can reach your finances only while Idiot is open on this Mac, and anything they read is sent to the AI model they use."
             }
-            return "Lets a local AI agent such as Hermes read your finances over MCP. Anything an agent reads is sent to the AI model it uses."
+            return "Lets a local AI agent such as Claude Code or Hermes read your finances over MCP. Anything an agent reads is sent to the AI model it uses."
         }
 
         private var statusText: String {

@@ -28,6 +28,7 @@ idiot/
 │   ├── TransactionRowView.swift
 │   ├── TransactionFormView.swift
 │   ├── MCPSettingsSection.swift (macOS)
+│   ├── MenuBarView.swift (macOS menu bar extra)
 │   ├── HelpView.swift (help & savings guide, opened from header ? button or Settings)
 │   ├── RecurringListView.swift
 │   ├── RecurringFormView.swift
@@ -139,6 +140,10 @@ Transactions in any month **before** the current month are immutable:
 ## Navigation / View Hierarchy
 
 ```
+MenuBarExtra (macOS, toggled by "Show in menu bar" in Settings)
+└── MenuBarView (month totals, over-budget list, recent items, quick actions,
+    Claude Code access toggle + copy setup command)
+
 ContentView
 ├── MonthlyHeaderView
 │   ├── MonthPicker (dropdown)
@@ -178,7 +183,7 @@ ContentView
 
 ## Agent Access (MCP)
 
-macOS only. `MCPHTTPServer` serves Streamable HTTP on `127.0.0.1:47821` from inside the app, and `MCPTools` runs on `container.mainContext` so changes reach the UI and CloudKit normally. Do not open the store from a separate process. Access is off by default and requires a bearer token kept in the keychain; write tools need a second toggle and always refuse past months.
+macOS only. `MCPHTTPServer` serves Streamable HTTP on `127.0.0.1:47821` from inside the app, and `MCPTools` runs on `container.mainContext` so changes reach the UI and CloudKit normally. Do not open the store from a separate process. Access is off by default and requires a bearer token kept in the keychain; write tools need a second toggle and always refuse past months. Claude Code connects with the `claude mcp add --transport http` command from `MCPServerController.claudeCodeCommand`, copyable from Settings or the menu bar.
 
 ## Phases (located in `phases/`)
 

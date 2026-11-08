@@ -11,3 +11,9 @@ Let local AI agents such as Hermes read, and optionally change, finances through
 - **UI** (`Views/MCPSettingsSection.swift`): Settings section with toggles, status, last request, and copy buttons for the Hermes config and token.
 - **Entitlement**: `com.apple.security.network.server` in `Idiot-macOS.entitlements`.
 - iOS is not supported because the app cannot serve requests in the background.
+
+## Menu bar and Claude Code
+
+- **Menu bar** (`Views/MenuBarView.swift`): `MenuBarExtra` with `.window` style, inserted while `showMenuBarExtra` is on (Settings > "Show in menu bar", default on). Shows the current month's income, expenses, net and balance, over-budget categories, the four most recent transactions, and actions for Add Transaction (`idiot://add`), Open Idiot and Analytics.
+- **Main window**: the `WindowGroup` has id `main` and prefers external events, so `idiot://` URLs reuse the open window instead of spawning a new one.
+- **Claude Code**: `MCPServerController.claudeCodeCommand` builds `claude mcp add --transport http --scope user idiot http://127.0.0.1:47821/mcp --header "Authorization: Bearer <token>"`. Copy it from the menu bar or Settings and run it once. Regenerating the token means running the command again after `claude mcp remove idiot -s user`.

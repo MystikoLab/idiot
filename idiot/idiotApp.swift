@@ -11,6 +11,9 @@ import SwiftUI
 @main
 struct idiotApp: App {
     let container: ModelContainer
+    #if os(macOS)
+        @AppStorage("showMenuBarExtra") private var showMenuBarExtra = true
+    #endif
 
     init() {
         do {
@@ -31,10 +34,11 @@ struct idiotApp: App {
     }
 
     var body: some Scene {
-        WindowGroup {
+        WindowGroup(id: "main") {
             ContentView()
             #if os(macOS)
                 .frame(minWidth: 880, idealWidth: 1120, minHeight: 620, idealHeight: 720)
+                .handlesExternalEvents(preferring: ["*"], allowing: ["*"])
             #endif
         }
         #if os(macOS)
@@ -49,10 +53,19 @@ struct idiotApp: App {
 
         #if os(macOS)
             analyticsWindow
+            menuBarExtra
         #endif
     }
 
     #if os(macOS)
+        private var menuBarExtra: some Scene {
+            MenuBarExtra("Idiot", systemImage: "dollarsign.circle", isInserted: $showMenuBarExtra) {
+                MenuBarView()
+                    .modelContainer(container)
+            }
+            .menuBarExtraStyle(.window)
+        }
+
         private var analyticsWindow: some Scene {
             Window("Analytics", id: "analytics") {
                 AnalyticsView()
