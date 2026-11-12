@@ -25,6 +25,7 @@ struct idiotApp: App {
             DefaultCategories.reconcileDuplicates(context: context)
             RecurringEngine.materialize(context: context)
             CloudSyncMonitor.shared.start()
+            OpeningBalance.start()
             #if os(macOS)
                 MCPServerController.shared.configure(container: container)
             #endif

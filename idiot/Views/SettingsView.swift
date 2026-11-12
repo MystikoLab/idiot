@@ -60,6 +60,12 @@ struct SettingsView: View {
             .onChange(of: startingAmountText) {
                 OpeningBalance.set(Double(startingAmountText.trimmingCharacters(in: .whitespaces)) ?? 0)
             }
+            .onChange(of: OpeningBalance.amount) { _, amount in
+                let current = Double(startingAmountText.trimmingCharacters(in: .whitespaces)) ?? 0
+                if current != amount {
+                    startingAmountText = amount == 0 ? "" : String(format: "%.2f", amount)
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") {
