@@ -31,6 +31,7 @@ struct CategoryEditView: View {
     @State private var colorHex: String
     @State private var customColor: Color
     @State private var iconName: String
+    @State private var budgetAlertsEnabled: Bool
     @State private var showValidation = false
 
     init(category: Category? = nil) {
@@ -41,6 +42,7 @@ struct CategoryEditView: View {
         _colorHex = State(initialValue: category?.colorHex ?? "#4F8EF7")
         _customColor = State(initialValue: Color(hex: category?.colorHex ?? "#4F8EF7"))
         _iconName = State(initialValue: category?.iconName ?? "tag.fill")
+        _budgetAlertsEnabled = State(initialValue: category?.budgetAlertsEnabled ?? true)
     }
 
     var body: some View {
@@ -57,6 +59,10 @@ struct CategoryEditView: View {
 
                     if type == .expense {
                         TextField("Monthly limit (optional)", text: $limit)
+
+                        if hasLimit {
+                            Toggle("Budget alerts", isOn: $budgetAlertsEnabled)
+                        }
                     }
                 }
 
@@ -132,6 +138,10 @@ struct CategoryEditView: View {
         }
     }
 
+    private var hasLimit: Bool {
+        (Double(limit.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0) > 0
+    }
+
     private func save() {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else {
@@ -148,17 +158,22 @@ struct CategoryEditView: View {
             category.limit = resolvedLimit
             category.colorHex = colorHex
             category.iconName = iconName
+            category.budgetAlertsEnabled = budgetAlertsEnabled
         } else {
             let nextSortOrder = (categories.filter { $0.type == type }.map(\.sortOrder).max() ?? 0) + 1
-            modelContext.insert(Category(
+            let created = Category(
                 name: trimmedName,
                 type: type,
                 limit: resolvedLimit,
                 colorHex: colorHex,
                 iconName: iconName,
                 sortOrder: nextSortOrder
-            ))
+            )
+            created.budgetAlertsEnabled = budgetAlertsEnabled
+            modelContext.insert(created)
         }
+
+        NotificationManager.shared.refresh()
 
         dismiss()
     }

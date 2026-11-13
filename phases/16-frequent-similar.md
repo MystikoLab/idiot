@@ -1,0 +1,11 @@
+# Phase 16 — Frequent & Similar Transactions
+
+Reuse past transactions when adding a new one, and see every transaction that shares a name.
+
+## Implementation guide
+
+- **Matching** (`Helpers/TransactionMatcher.swift`): `normalizedTitle(_:)` folds case, diacritics and width, removes apostrophes, splits on anything that is not a letter or digit, and drops trailing number-ish tokens (digits ≥ letters, at least one token is kept), so `UBER *TRIP 1234` and `Uber Trip` both become `uber trip`. Two transactions are "similar" when their normalized titles are equal. No model fields were added.
+- **Frequent transactions** (`Views/TransactionFormView.swift`, `Views/TransactionSuggestionList.swift`): when adding, the form fetches all transactions once in `onAppear` and caches `TransactionMatcher.titleGroups` (one `TitleGroup` per normalized title: most recent transaction + use count) in `@State`, so each keystroke only filters the distinct titles. `TransactionMatcher.suggestions(for:in:limit:)` returns up to 5 groups: prefix matches first, then use count, then recency. Picking a row copies title, description, amount, category and `isInvestmentReturn` from the most recent transaction; the date is untouched. `pickedTitle` hides the list until the title is edited again (it is also set after restoring a draft). Nothing is shown when editing.
+- **Similar transactions** (`Views/SimilarTransactionsView.swift`): `SimilarTransactionsView(title:)` queries all transactions and filters with `TransactionMatcher.similar(to:in:)`. It shows tiles (count, total, average, per month over `TransactionMatcher.monthSpan`), a per-month breakdown (`TransactionMatcher.monthlyBreakdown`) and the individual transactions. It is presented with `.sheet(item:)` using the `SimilarTitle` identifiable wrapper.
+- **Context menu** (`Views/TransactionListView.swift`): "Show Similar" sits after Copy and is never disabled, since it is read-only.
+- **Repeat Spending tab** (`Views/AnalyticsView.swift`, `Views/RepeatSpendingSection.swift`): `AnalyticsEngine.repeatSpending(_:months:)` groups the filtered expense transactions by normalized title, keeps groups with at least 2 occurrences and sorts by total descending. Monthly cost is total / `monthsSpan` of the Analytics range. Tapping a group opens `SimilarTransactionsView`, which is not limited by the Analytics filters.

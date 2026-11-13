@@ -64,11 +64,16 @@
             ),
             tool(
                 "list_transactions",
-                "Search transactions, newest first. Returns matching totals along with one page of results.",
+                "Search transactions, newest first. Returns matching totals along with one page of results. Each transaction has a main category and an optional sub_category, which is a label only: amounts and types always belong to the main category.",
                 properties: [
                     "from": dateProperty("Earliest date, inclusive, as yyyy-MM-dd."),
                     "to": dateProperty("Latest date, inclusive, as yyyy-MM-dd."),
                     "category": ["type": "string", "description": "Category name or id."],
+                    "category_match": [
+                        "type": "string",
+                        "enum": ["main", "sub", "either"],
+                        "description": "Which category the category filter checks: main, sub or either. Defaults to main.",
+                    ],
                     "type": ["type": "string", "enum": ["income", "expense", "investment"]],
                     "search": ["type": "string", "description": "Case-insensitive text to find in the title or description."],
                     "min_amount": ["type": "number"],
@@ -94,11 +99,12 @@
             tool("get_forecast", "End-of-month projection for the current month, including upcoming recurring items.", properties: [:], readOnly: true),
             tool(
                 "add_transaction",
-                "Add a transaction. Income, expense or investment comes from the category. Dates before the current month are rejected.",
+                "Add a transaction. Income, expense or investment comes from the category. sub_category is an optional second label. Dates before the current month are rejected.",
                 properties: [
                     "title": ["type": "string"],
                     "amount": ["type": "number", "exclusiveMinimum": 0, "description": "Always positive."],
                     "category": ["type": "string", "description": "Category name or id."],
+                    "sub_category": ["type": "string", "description": "Optional sub category name or id. Must differ from category."],
                     "date": dateProperty("Date as yyyy-MM-dd. Defaults to today."),
                     "description": ["type": "string"],
                     "investment_return": investmentReturnProperty,
@@ -114,6 +120,7 @@
                     "title": ["type": "string"],
                     "amount": ["type": "number", "exclusiveMinimum": 0],
                     "category": ["type": "string", "description": "Category name or id."],
+                    "sub_category": ["type": "string", "description": "Sub category name or id. An empty string clears it."],
                     "date": dateProperty("Date as yyyy-MM-dd."),
                     "description": ["type": "string", "description": "An empty string clears the description."],
                     "investment_return": investmentReturnProperty,
@@ -204,6 +211,10 @@
             let to = try dateArgument("to", in: arguments).flatMap { Calendar.current.date(byAdding: .day, value: 1, to: $0) }
             let categories = try context.fetch(FetchDescriptor<Category>())
             let category = try stringArgument("category", in: arguments).map { try resolveCategory($0, in: categories) }
+            let matchValue = try stringArgument("category_match", in: arguments)
+            guard let matchMode = CategoryMatchMode(rawValue: matchValue ?? "main") else {
+                throw MCPToolError("category_match must be main, sub or either")
+            }
             let type = try stringArgument("type", in: arguments)
             if let type, CategoryType(rawValue: type) == nil {
                 throw MCPToolError("type must be income, expense or investment")
@@ -225,7 +236,7 @@
                 if let to, tx.date >= to {
                     return false
                 }
-                if let category, tx.category?.id != category.id {
+                if let category, !matchMode.matches(tx, where: { $0.id == category.id }) {
                     return false
                 }
                 if let type, tx.category?.type.rawValue != type {
@@ -356,7 +367,14 @@
             }
             let title = try validatedTitle(rawTitle)
             try validateAmount(amount)
-            let category = try resolveCategory(categoryValue, in: context.fetch(FetchDescriptor<Category>()))
+            let categories = try context.fetch(FetchDescriptor<Category>())
+            let category = try resolveCategory(categoryValue, in: categories)
+            let subCategory = try stringArgument("sub_category", in: arguments).flatMap { value in
+                try value.isEmpty ? nil : resolveCategory(value, in: categories)
+            }
+            if subCategory?.id == category.id {
+                throw MCPToolError("sub_category must differ from category")
+            }
             let date = try dateArgument("date", in: arguments).map(storedDate) ?? .now
             try ensureUnlocked(date)
             let isReturn = try boolArgument("investment_return", in: arguments) ?? false
@@ -367,6 +385,7 @@
                 amount: amount,
                 date: date,
                 category: category,
+                subCategory: subCategory,
                 isInvestmentReturn: category.type == .investment && isReturn
             )
             context.insert(transaction)
@@ -383,8 +402,14 @@
             if let amount {
                 try validateAmount(amount)
             }
-            let category = try stringArgument("category", in: arguments).map {
-                try resolveCategory($0, in: context.fetch(FetchDescriptor<Category>()))
+            let categories = try context.fetch(FetchDescriptor<Category>())
+            let category = try stringArgument("category", in: arguments).map { try resolveCategory($0, in: categories) }
+            let subValue = try stringArgument("sub_category", in: arguments)
+            let subCategory = try subValue.flatMap { value in
+                try value.isEmpty ? nil : resolveCategory(value, in: categories)
+            }
+            if let subCategory, subCategory.id == (category ?? transaction.category)?.id {
+                throw MCPToolError("sub_category must differ from category")
             }
             let date = try dateArgument("date", in: arguments).map(storedDate)
             if let date {
@@ -393,7 +418,7 @@
             let hasDescription = arguments["description"] != nil
             let description = try validatedDescription(arguments)
             let isReturn = try boolArgument("investment_return", in: arguments)
-            guard title != nil || amount != nil || category != nil || date != nil || hasDescription || isReturn != nil else {
+            guard title != nil || amount != nil || category != nil || subValue != nil || date != nil || hasDescription || isReturn != nil else {
                 throw MCPToolError("Provide at least one field to change.")
             }
 
@@ -405,6 +430,12 @@
             }
             if let category {
                 transaction.category = category
+            }
+            if subValue != nil {
+                transaction.subCategory = subCategory
+            }
+            if transaction.subCategory?.id == transaction.category?.id {
+                transaction.subCategory = nil
             }
             if let date {
                 transaction.date = date
@@ -571,6 +602,7 @@
                 "type": nullable(transaction.category?.type.rawValue),
                 "investment_return": transaction.isInvestmentReturn,
                 "category": nullable(transaction.category?.name),
+                "sub_category": nullable(transaction.subCategory?.name),
                 "date": dateFormatter.string(from: transaction.date),
                 "recurring": transaction.recurringRuleID != nil,
                 "locked": transaction.date.isInPastMonth,

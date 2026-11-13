@@ -254,6 +254,7 @@ struct RecurringListView: View {
         }
         modelContext.delete(rule)
         deletingRule = nil
+        NotificationManager.shared.refresh()
     }
 
     private func handleAddTap() {

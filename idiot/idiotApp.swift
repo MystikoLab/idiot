@@ -10,28 +10,25 @@ import SwiftUI
 
 @main
 struct idiotApp: App {
-    let container: ModelContainer
+    let container = AppModelContainer.shared
     #if os(macOS)
         @AppStorage("showMenuBarExtra") private var showMenuBarExtra = true
     #endif
 
     init() {
-        do {
-            let configuration = ModelConfiguration(cloudKitDatabase: .private("iCloud.com.umangsurana.idiot"))
-            container = try ModelContainer(for: Category.self, Transaction.self, RecurringRule.self, configurations: configuration)
-            let context = ModelContext(container)
-            DefaultCategories.seedIfNeeded(context: context)
-            DefaultCategories.addMissingDefaults(context: context)
-            DefaultCategories.reconcileDuplicates(context: context)
-            RecurringEngine.materialize(context: context)
-            CloudSyncMonitor.shared.start()
-            OpeningBalance.start()
-            #if os(macOS)
-                MCPServerController.shared.configure(container: container)
-            #endif
-        } catch {
-            fatalError("Failed to create model container: \(error.localizedDescription)")
-        }
+        let context = ModelContext(container)
+        DefaultCategories.seedIfNeeded(context: context)
+        DefaultCategories.addMissingDefaults(context: context)
+        DefaultCategories.reconcileDuplicates(context: context)
+        RecurringEngine.materialize(context: context)
+        QuickLogDrainer.drain(context: context)
+        QuickLogDrainer.startObserving()
+        CloudSyncMonitor.shared.start()
+        OpeningBalance.start()
+        NotificationManager.shared.configure(container: container)
+        #if os(macOS)
+            MCPServerController.shared.configure(container: container)
+        #endif
     }
 
     var body: some Scene {
@@ -48,6 +45,7 @@ struct idiotApp: App {
         .windowToolbarStyle(.unified(showsTitle: false))
         .commands {
             AnalyticsCommands()
+            ImportFromDevicesCommands()
         }
         #endif
         .modelContainer(container)

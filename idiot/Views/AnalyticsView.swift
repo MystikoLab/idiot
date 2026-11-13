@@ -10,7 +10,9 @@ struct AnalyticsView: View {
         case forecast
         case comparison
         case patterns
+        case repeats
         case investments
+        case goals
 
         var id: String {
             rawValue
@@ -24,7 +26,9 @@ struct AnalyticsView: View {
             case .forecast: "Forecast & Budgets"
             case .comparison: "Comparison & Recurring"
             case .patterns: "Spend Patterns"
+            case .repeats: "Repeat Spending"
             case .investments: "Investments"
+            case .goals: "Goals"
             }
         }
 
@@ -36,7 +40,9 @@ struct AnalyticsView: View {
             case .forecast: "wand.and.stars"
             case .comparison: "arrow.left.arrow.right.square"
             case .patterns: "clock.badge.questionmark"
+            case .repeats: "repeat"
             case .investments: "dollarsign.arrow.circlepath"
+            case .goals: "target"
             }
         }
     }
@@ -66,6 +72,11 @@ struct AnalyticsView: View {
     @Query(sort: \Transaction.date) private var allTransactions: [Transaction]
     @Query(sort: \Category.sortOrder) private var categories: [Category]
     @Query private var recurringRules: [RecurringRule]
+    @Query(sort: \SavingsGoal.sortOrder) private var savingsGoals: [SavingsGoal]
+
+    static let requestedTabKey = "analyticsRequestedTab"
+
+    @AppStorage(AnalyticsView.requestedTabKey) private var requestedTab = ""
 
     @AppStorage("analyticsFromDate") private var fromDateValue: Double = 0
     @AppStorage("analyticsToDate") private var toDateValue: Double = 0
@@ -76,11 +87,13 @@ struct AnalyticsView: View {
     @AppStorage("analyticsMinAmount") private var minAmountText = ""
     @AppStorage("analyticsMaxAmount") private var maxAmountText = ""
     @AppStorage("analyticsSelectedCategoryIDs") private var selectedCategoryIDsData = ""
+    @AppStorage("analyticsCategoryMatchMode") private var categoryMatchMode = CategoryMatchMode.either
     @State private var sortAscending = false
     @State private var activeTab: AnalyticsTab = .transactions
     @State private var showFilters = false
     @State private var selectedBucket: Date?
     @State private var chartSize: CGSize = .zero
+    @State private var similarTitle: SimilarTitle?
 
     private var defaultFromDate: Date {
         (Calendar.current.date(byAdding: .month, value: -1, to: .now) ?? .now).startOfMonth
@@ -222,12 +235,7 @@ struct AnalyticsView: View {
             if let maxVal = maxAmount, tx.amount > maxVal {
                 return false
             }
-            if !selectedCategoryIDs.isEmpty {
-                guard let category = tx.category, selectedCategoryIDs.contains(category.id) else {
-                    return false
-                }
-            }
-            return true
+            return isInSelectedCategories(tx)
         }
     }
 
@@ -438,8 +446,12 @@ struct AnalyticsView: View {
                     comparisonContent
                 case .patterns:
                     patternsContent
+                case .repeats:
+                    repeatsContent
                 case .investments:
                     investmentsContent
+                case .goals:
+                    goalsContent
                 }
             }
             .padding()
@@ -450,6 +462,29 @@ struct AnalyticsView: View {
         #endif
         .navigationTitle("Analytics")
         .animation(.default, value: activeTab)
+        .sheet(item: $similarTitle) { similar in
+            SimilarTransactionsView(title: similar.title)
+        }
+        .onAppear {
+            applyRequestedTab()
+        }
+        .onChange(of: requestedTab) {
+            applyRequestedTab()
+        }
+    }
+
+    private func applyRequestedTab() {
+        guard let tab = AnalyticsTab(rawValue: requestedTab) else { return }
+        activeTab = tab
+        requestedTab = ""
+    }
+
+    private var goalsContent: some View {
+        let active = savingsGoals.activeOrdered
+        return GoalsSection(
+            goals: active.map { GoalEngine.progress(for: $0) },
+            series: Dictionary(uniqueKeysWithValues: active.map { ($0.id, GoalEngine.series(for: $0)) })
+        )
     }
 
     private var balanceContent: some View {
@@ -494,6 +529,12 @@ struct AnalyticsView: View {
         }
     }
 
+    private var repeatsContent: some View {
+        RepeatSpendingSection(groups: AnalyticsEngine.repeatSpending(filteredTransactions, months: monthsSpan)) { group in
+            similarTitle = SimilarTitle(title: group.title)
+        }
+    }
+
     private var investmentsContent: some View {
         InvestmentsSection(
             flows: AnalyticsEngine.investmentFlows(filteredTransactions, granularity: granularity),
@@ -508,9 +549,9 @@ struct AnalyticsView: View {
     }
 
     private func isInSelectedCategories(_ tx: Transaction) -> Bool {
-        guard !selectedCategoryIDs.isEmpty else { return true }
-        guard let category = tx.category else { return false }
-        return selectedCategoryIDs.contains(category.id)
+        let selected = selectedCategoryIDs
+        guard !selected.isEmpty else { return true }
+        return categoryMatchMode.matches(tx) { selected.contains($0.id) }
     }
 
     private var toolbarRow: some View {
@@ -1306,6 +1347,14 @@ struct AnalyticsView: View {
                     .foregroundStyle(.tint)
                 }
             }
+
+            Picker("Match categories by", selection: $categoryMatchMode) {
+                ForEach(CategoryMatchMode.allCases) { mode in
+                    Text(mode.title).tag(mode)
+                }
+            }
+            .pickerStyle(.menu)
+            .font(.callout)
 
             LazyVGrid(
                 columns: [GridItem(.adaptive(minimum: 150), alignment: .leading)],

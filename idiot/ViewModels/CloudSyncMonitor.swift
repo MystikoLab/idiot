@@ -53,6 +53,10 @@ final class CloudSyncMonitor {
         lastEvent = event
         lastErrorMessage = event.error.map(Self.failureMessage)
 
+        if event.type == .import, event.error == nil {
+            NotificationManager.shared.refresh()
+        }
+
         #if DEBUG
             print("[CloudSync] \(Self.name(for: event.type)) finished — error: \(lastErrorMessage ?? "none")")
         #endif

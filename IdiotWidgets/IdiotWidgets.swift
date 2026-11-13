@@ -7,5 +7,12 @@ struct IdiotWidgetBundle: WidgetBundle {
         TransactionWidget()
         AnalyticsWidget()
         NewTransactionWidget()
+        SavingsGoalsWidget()
+        QuickLogWidget()
+        #if os(iOS)
+            if #available(iOS 18.0, *) {
+                LogTransactionControl()
+            }
+        #endif
     }
 }

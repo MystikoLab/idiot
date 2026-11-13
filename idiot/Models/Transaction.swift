@@ -9,10 +9,12 @@ final class Transaction {
     var amount: Double = 0
     var date: Date = Date()
     var category: Category?
+    var subCategory: Category?
     var createdAt: Date = Date()
     var syncStamp: Date = Date()
     var recurringRuleID: UUID?
     var isInvestmentReturn: Bool = false
+    @Relationship(deleteRule: .cascade, inverse: \Attachment.transaction) var attachments: [Attachment]?
 
     init(
         id: UUID = UUID(),
@@ -21,6 +23,7 @@ final class Transaction {
         amount: Double = 0,
         date: Date = .now,
         category: Category? = nil,
+        subCategory: Category? = nil,
         createdAt: Date = .now,
         recurringRuleID: UUID? = nil,
         isInvestmentReturn: Bool = false
@@ -31,6 +34,7 @@ final class Transaction {
         self.amount = amount
         self.date = date
         self.category = category
+        self.subCategory = subCategory
         self.createdAt = createdAt
         self.recurringRuleID = recurringRuleID
         self.isInvestmentReturn = isInvestmentReturn

@@ -11,6 +11,9 @@
 		1D4A00130000000000000013 /* IdiotWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D4A000F0000000000000F /* IdiotWidgets.swift */; };
 		1D4A00140000000000000014 /* Widgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D4A00100000000000000010 /* Widgets.swift */; };
 		1D4A00150000000000000015 /* WidgetSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D4A00110000000000000011 /* WidgetSnapshot.swift */; };
+		1D4A00190000000000000019 /* QuickLogWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D4A00160000000000000016 /* QuickLogWidget.swift */; };
+		1D4A001A000000000000001A /* QuickLogQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D4A00170000000000000017 /* QuickLogQueue.swift */; };
+		1D4A001B000000000000001B /* OpenAddFormIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D4A00180000000000000018 /* OpenAddFormIntent.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -42,6 +45,9 @@
 		1D4A000F0000000000000F /* IdiotWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdiotWidgets.swift; sourceTree = "<group>"; };
 		1D4A00100000000000000010 /* Widgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Widgets.swift; sourceTree = "<group>"; };
 		1D4A00110000000000000011 /* WidgetSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetSnapshot.swift; sourceTree = "<group>"; };
+		1D4A00160000000000000016 /* QuickLogWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickLogWidget.swift; sourceTree = "<group>"; };
+		1D4A00170000000000000017 /* QuickLogQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = QuickLogQueue.swift; path = ../idiot/Helpers/QuickLogQueue.swift; sourceTree = "<group>"; };
+		1D4A00180000000000000018 /* OpenAddFormIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OpenAddFormIntent.swift; path = ../idiot/Intents/OpenAddFormIntent.swift; sourceTree = "<group>"; };
 		7BEB210D3015E760009027E2 /* idiot.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = idiot.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -90,6 +96,9 @@
 				1D4A000F0000000000000F /* IdiotWidgets.swift */,
 				1D4A00100000000000000010 /* Widgets.swift */,
 				1D4A00110000000000000011 /* WidgetSnapshot.swift */,
+				1D4A00160000000000000016 /* QuickLogWidget.swift */,
+				1D4A00170000000000000017 /* QuickLogQueue.swift */,
+				1D4A00180000000000000018 /* OpenAddFormIntent.swift */,
 			);
 			path = IdiotWidgets;
 			sourceTree = "<group>";
@@ -221,6 +230,9 @@
 				1D4A00130000000000000013 /* IdiotWidgets.swift in Sources */,
 				1D4A00140000000000000014 /* Widgets.swift in Sources */,
 				1D4A00150000000000000015 /* WidgetSnapshot.swift in Sources */,
+				1D4A00190000000000000019 /* QuickLogWidget.swift in Sources */,
+				1D4A001A000000000000001A /* QuickLogQueue.swift in Sources */,
+				1D4A001B000000000000001B /* OpenAddFormIntent.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -449,6 +461,7 @@
 				INFOPLIST_FILE = idiot/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Idiot;
 				INFOPLIST_KEY_CFBundleIconFile = Idiot;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Idiot uses the camera to scan receipts you attach to transactions.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -506,6 +519,7 @@
 				INFOPLIST_FILE = idiot/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Idiot;
 				INFOPLIST_KEY_CFBundleIconFile = Idiot;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Idiot uses the camera to scan receipts you attach to transactions.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

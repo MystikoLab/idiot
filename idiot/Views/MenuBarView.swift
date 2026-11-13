@@ -7,6 +7,7 @@
         @Environment(\.openWindow) private var openWindow
         @Environment(\.openURL) private var openURL
         @Query(sort: \Transaction.date, order: .reverse) private var allTransactions: [Transaction]
+        @Query(sort: \SavingsGoal.sortOrder) private var savingsGoals: [SavingsGoal]
         @Bindable private var controller = MCPServerController.shared
         @State private var copiedClaudeCommand = false
 
@@ -48,6 +49,9 @@
                     overLimitList
                 }
                 recentList
+                if !goalProgress.isEmpty {
+                    goalsList
+                }
                 Divider()
                 actions
                 Divider()
@@ -120,6 +124,36 @@
                             .foregroundStyle(amountColor(for: transaction))
                     }
                     .font(.caption)
+                }
+            }
+        }
+
+        private var goalProgress: [GoalEngine.Progress] {
+            savingsGoals.activeOrdered.prefix(4).map { GoalEngine.progress(for: $0) }
+        }
+
+        private var goalsList: some View {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Goals")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                ForEach(goalProgress) { goal in
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack {
+                            Label(goal.name, systemImage: goal.iconName)
+                                .lineLimit(1)
+                            Spacer()
+                            Text(goal.status == .reached ? "Reached" : "\(goal.percent)%")
+                                .monospacedDigit()
+                                .foregroundStyle(goal.status.color)
+                        }
+                        .font(.caption)
+                        ProgressView(value: goal.fraction)
+                            .controlSize(.small)
+                            .tint(goal.tint)
+                            .accessibilityLabel("\(goal.name) progress")
+                            .accessibilityValue("\(goal.percent) percent")
+                    }
                 }
             }
         }

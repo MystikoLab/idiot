@@ -11,9 +11,12 @@ final class Category {
     var iconName: String = "tag.fill"
     var isSystem: Bool = false
     var sortOrder: Int = 0
+    var budgetAlertsEnabled: Bool = true
     var syncStamp: Date = Date()
     @Relationship(deleteRule: .cascade, inverse: \Transaction.category) var transactions: [Transaction]?
+    @Relationship(deleteRule: .nullify, inverse: \Transaction.subCategory) var subTransactions: [Transaction]?
     @Relationship(deleteRule: .cascade, inverse: \RecurringRule.category) var recurringRules: [RecurringRule]?
+    @Relationship(deleteRule: .nullify, inverse: \SavingsGoal.category) var goals: [SavingsGoal]?
 
     init(
         id: UUID = UUID(),

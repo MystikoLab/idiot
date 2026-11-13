@@ -445,6 +445,7 @@ private struct WeeklyChartContent: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             summaryTiles
+            GoalsStripView()
             titleBlock
                 .padding(.top, 6)
 

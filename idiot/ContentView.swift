@@ -43,6 +43,7 @@ struct ContentView: View {
     @State private var isFilterStateLoaded = false
     @State private var showAddTransaction = false
     @State private var editingTransaction: Transaction?
+    @State private var searchText = ""
 
     private var newTransactionDate: Date {
         Calendar.current.isDate(selectedMonth, equalTo: .now, toGranularity: .month) ? .now : selectedMonth
@@ -93,6 +94,7 @@ struct ContentView: View {
         platformHome
             .onAppear {
                 loadPersistedFilters()
+                consumeAddFormRequest()
             }
             .sheet(isPresented: $showSettings) {
                 SettingsView()
@@ -106,20 +108,48 @@ struct ContentView: View {
             .sheet(item: $editingTransaction) { transaction in
                 TransactionFormView(transaction: transaction)
             }
+            .onReceive(NotificationCenter.default.publisher(for: AddFormRequest.notification)) { _ in
+                consumeAddFormRequest()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: Self.didBecomeActiveNotification)) { _ in
+                consumeAddFormRequest()
+                QuickLogDrainer.drainAndRefresh()
+            }
             .onOpenURL { url in
                 switch url.host {
                 case "add":
                     showAddTransaction = true
                 case "analytics":
-                    #if os(macOS)
-                        openAnalyticsWindow()
-                    #else
-                        showAnalytics = true
-                    #endif
+                    openAnalytics()
+                case "goals":
+                    UserDefaults.standard.set(AnalyticsView.AnalyticsTab.goals.rawValue, forKey: AnalyticsView.requestedTabKey)
+                    openAnalytics()
                 default:
                     break
                 }
             }
+    }
+
+    private static var didBecomeActiveNotification: Notification.Name {
+        #if os(macOS)
+            NSApplication.didBecomeActiveNotification
+        #else
+            UIApplication.didBecomeActiveNotification
+        #endif
+    }
+
+    private func consumeAddFormRequest() {
+        if AddFormRequest.consume() {
+            showAddTransaction = true
+        }
+    }
+
+    private func openAnalytics() {
+        #if os(macOS)
+            openAnalyticsWindow()
+        #else
+            showAnalytics = true
+        #endif
     }
 
     private var platformHome: some View {
@@ -146,6 +176,7 @@ struct ContentView: View {
 
                 TransactionListView(
                     selectedMonth: selectedMonth,
+                    searchText: searchText,
                     showAddTransaction: $showAddTransaction,
                     editingTransaction: $editingTransaction,
                     hiddenCategoryIDs: hiddenCategoryIDsBinding,
@@ -157,6 +188,7 @@ struct ContentView: View {
                 )
                 .frame(minWidth: 380, idealWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
             }
+            .searchable(text: $searchText, prompt: "Search transactions")
             .toolbar {
                 MonthlyHeaderView(
                     selectedMonth: $selectedMonth,
@@ -189,6 +221,7 @@ struct ContentView: View {
                     ForEach(walkableMonths, id: \.self) { month in
                         MonthPageView(
                             month: month,
+                            searchText: searchText,
                             showAddTransaction: $showAddTransaction,
                             editingTransaction: $editingTransaction,
                             hiddenCategoryIDs: hiddenCategoryIDsBinding,
@@ -257,6 +290,7 @@ struct ContentView: View {
                     }
                 }
                 .navigationBarTitleDisplayMode(.inline)
+                .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search transactions")
             }
             .ignoresSafeArea(.keyboard)
             .privacySensitive()
@@ -330,6 +364,7 @@ struct ContentView: View {
 
         struct MonthPageView: View {
             let month: Date
+            let searchText: String
             @Binding var showAddTransaction: Bool
             @Binding var editingTransaction: Transaction?
             @Binding var hiddenCategoryIDs: Set<Category.ID>
@@ -342,6 +377,7 @@ struct ContentView: View {
             var body: some View {
                 TransactionListView(
                     selectedMonth: month,
+                    searchText: searchText,
                     showAddTransaction: $showAddTransaction,
                     editingTransaction: $editingTransaction,
                     hiddenCategoryIDs: $hiddenCategoryIDs,

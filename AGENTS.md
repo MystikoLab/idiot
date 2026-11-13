@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-A macOS + iOS SwiftUI finance tracking app with SwiftData persistence. The app tracks both income and expense transactions across customizable categories, visualizes spending with Swift Charts (weekly income/expense/investment line chart (expense axis left, income axis right, investments on an unlabeled scale) + multi-month trend line charts + a full Analytics suite), enforces category budgets, supports recurring transaction rules, iCloud sync, widgets, and locks past-month data from editing.
+A macOS + iOS SwiftUI finance tracking app with SwiftData persistence. The app tracks both income and expense transactions across customizable categories, visualizes spending with Swift Charts (weekly income/expense/investment line chart (expense axis left, income axis right, investments on an unlabeled scale) + multi-month trend line charts + a full Analytics suite), enforces category budgets, supports recurring transaction rules, iCloud sync, widgets (monthly spending bar, recent transactions, savings goals, one-tap Quick Log, a Control Center button on iOS 18+), App Intents for Shortcuts and Siri, and locks past-month data from editing.
 
 **Stack**: SwiftUI + SwiftData + Swift Charts + CloudKit  
 **Target**: macOS 14+ / iOS 17+  
@@ -18,7 +18,9 @@ idiot/
 │   ├── Category.swift
 │   ├── CategoryType.swift
 │   ├── RecurringRule.swift
+│   ├── Attachment.swift (receipt image / PDF attached to a transaction)
 │   ├── RecurrenceFrequency.swift
+│   ├── SavingsGoal.swift
 │   └── DefaultCategories.swift
 ├── ViewModels/
 │   ├── CloudSyncMonitor.swift
@@ -27,6 +29,9 @@ idiot/
 │   ├── TransactionListView.swift
 │   ├── TransactionRowView.swift
 │   ├── TransactionFormView.swift
+│   ├── TransactionSuggestionList.swift (frequent-transaction suggestions under the title field)
+│   ├── ReceiptsSection.swift (form section: receipt thumbnails, add menu, OCR suggestion chips, iOS document scanner)
+│   ├── SimilarTransactionsView.swift (sheet: all transactions with the same normalized title)
 │   ├── CSVImportView.swift (review/edit rows before importing)
 │   ├── CSVExportView.swift (date range + category filters)
 │   ├── MCPSettingsSection.swift (macOS)
@@ -35,6 +40,10 @@ idiot/
 │   ├── RecurringListView.swift
 │   ├── RecurringFormView.swift
 │   ├── SettingsView.swift
+│   ├── SavingsGoalListView.swift + SavingsGoalFormView.swift (Settings > Savings Goals)
+│   ├── GoalsStripView.swift (main screen goals strip) + GoalStatusBadge.swift
+│   ├── GoalsSection.swift + GoalCardView.swift (Analytics Goals tab)
+│   ├── RecategorizeView.swift (review sheet for "Re-categorize this month…")
 │   ├── CategoryEditView.swift
 │   ├── MonthlyHeaderView.swift
 │   ├── WeeklyChartView.swift
@@ -42,7 +51,8 @@ idiot/
 │   ├── TrendChartView.swift
 │   └── AnalyticsView.swift (+ HeatmapSection, BalanceChartSection,
 │        InsightsSection, ForecastSection, PeriodComparisonSection,
-│        RecurringSplitSection, SpendPatternsSection, InvestmentsSection)
+│        RecurringSplitSection, SpendPatternsSection, RepeatSpendingSection,
+│        InvestmentsSection)
 ├── Helpers/
 │   ├── DateExtensions.swift
 │   ├── ColorExtensions.swift
@@ -50,17 +60,34 @@ idiot/
 │   ├── AnalyticsGranularity.swift
 │   ├── AnalyticsEngine.swift
 │   ├── RecurringEngine.swift
+│   ├── GoalEngine.swift (savings goal progress math)
+│   ├── TransactionMatcher.swift (title normalization, suggestions, similar transactions)
+│   ├── CategoryMatchMode.swift (main / sub / either category matching for filters)
+│   ├── AutoCategorizer.swift (Apple Intelligence availability, category history lookup, on-device model call)
+│   ├── AttachmentProcessor.swift (image downscale / JPEG, receipt import sources, Quick Look temp files)
+│   ├── ReceiptScanner.swift (Vision OCR: amount, merchant, date)
 │   ├── WidgetSnapshotWriter.swift
+│   ├── AppModelContainer.swift (the single shared ModelContainer)
+│   ├── QuickLogQueue.swift (pending widget logs, also compiled into the widget target)
+│   ├── QuickLogDrainer.swift
+│   ├── NotificationManager.swift (local notifications: budget alerts, recurring reminders)
 │   ├── MCPTools.swift (macOS)
 │   ├── MCPProtocol.swift (macOS)
 │   ├── MCPHTTPServer.swift (macOS)
 │   ├── CSVImporter.swift
 │   └── CSVExporter.swift
+├── Intents/
+│   ├── IntentSupport.swift, CategoryEntity.swift, TransactionEntity.swift
+│   ├── LogTransactionIntents.swift, MonthSummaryIntent.swift, EditTransactionIntent.swift
+│   ├── CreateRecurringRuleIntent.swift, IdiotShortcuts.swift
+│   └── OpenAddFormIntent.swift (also compiled into the widget target)
 ├── Resources/
 │   └── (Assets, etc.)
 ├── idiotApp.swift
 └── ContentView.swift
 ```
+
+`IdiotWidgets/` (widget extension, sources listed explicitly in the project file): `IdiotWidgets.swift` (bundle), `WidgetSnapshot.swift` (snapshot model + app-group store), `Widgets.swift` (Recent Transactions, Monthly Spending, New Transaction, Savings Goals, shared `SpendingBar`), `QuickLogWidget.swift` (Quick Log widget + intent, Control Center button).
 
 ### Data Models (SwiftData)
 
@@ -73,6 +100,8 @@ idiot/
 - `iconName: String` (SF Symbol name)
 - `isSystem: Bool` (true for default categories; system categories can be renamed, recolored via a custom ColorPicker, and deleted — they are not re-seeded after deletion)
 - `sortOrder: Int`
+- `budgetAlertsEnabled: Bool` (default true; per-category mute for budget alert notifications)
+- `subTransactions: [Transaction]?` (inverse of `Transaction.subCategory`, delete rule nullify)
 
 **`Transaction`** — `@Model`
 - `id: UUID`
@@ -80,9 +109,26 @@ idiot/
 - `desc: String?`
 - `amount: Double`
 - `date: Date`
-- `category: Category` (relationship)
+- `category: Category` (relationship; the main category — owns the amount for budgets, charts, totals and analytics)
+- `subCategory: Category?` (optional second label only; never splits the amount; filters choose main / sub / either via `CategoryMatchMode`)
 - `createdAt: Date`
 - `isInvestmentReturn: Bool` (investment categories only: `false` = contribution, `true` = return such as a sale or dividend)
+- `attachments: [Attachment]?` (receipts; cascade delete; use `hasAttachments` in lists so `data` is never loaded)
+
+**`Attachment`** — `@Model`
+- `id: UUID`
+- `filename: String`
+- `contentType: String` (UTType identifier; images are stored as downscaled JPEG, PDFs untouched)
+- `data: Data?` (`@Attribute(.externalStorage)`)
+- `createdAt: Date`
+- `transaction: Transaction?`
+
+**`SavingsGoal`** — `@Model`
+- `id: UUID`, `name: String`, `targetAmount: Double`
+- `startDate: Date`, `deadline: Date?`
+- `iconName: String`, `colorHex: String`, `sortOrder: Int`, `isArchived: Bool`, `createdAt: Date`
+- `category: Category?` (inverse `Category.goals`, nullified when the category is deleted)
+- Progress = money logged in the linked category from `startDate` onward (investment: contributions − returns; income/expense: sum of amounts), computed by `GoalEngine`.
 
 ### CategoryType Enum
 ```swift
@@ -145,7 +191,7 @@ Transactions in any month **before** the current month are immutable:
 
 ```
 MenuBarExtra (macOS, toggled by "Show in menu bar" in Settings)
-└── MenuBarView (month totals, over-budget list, recent items, quick actions,
+└── MenuBarView (month totals, over-budget list, recent items, goals, quick actions,
     Claude Code access toggle + copy setup command)
 
 ContentView
@@ -154,13 +200,13 @@ ContentView
 │   ├── AnalyticsButton (chart icon -> AnalyticsView)
 │   ├── HelpButton (questionmark icon -> HelpView sheet)
 │   └── SettingsButton (gear icon -> SettingsView sheet)
-├── WeeklyChartView (summary tiles + line chart with a "Same scale" toggle)
+├── WeeklyChartView (summary tiles + goals strip + line chart with a "Same scale" toggle)
 ├── TransactionListView
 │   ├── TransactionRowView (per item)
-│   │   └── ContextMenu: Edit, Copy, Delete
+│   │   └── ContextMenu: Edit, Copy, Show Similar (-> SimilarTransactionsView sheet), Delete
 │   └── AddButton (floating +, bottom right -> TransactionFormView sheet)
 └── (Sheets / Windows)
-    ├── TransactionFormView (add/edit)
+    ├── TransactionFormView (add/edit; when adding, typing a title suggests frequent past transactions)
     ├── AnalyticsView (macOS: separate window, iOS: sheet; summary, insights and the
     │   │   main chart are always visible, lower content is switched by a dropdown
     │   │   picker in the toolbar)
@@ -172,21 +218,42 @@ ContentView
     │   ├── Forecast & Budgets tab: end-of-month projection + budget board
     │   ├── Comparison & Recurring tab: month-vs-month table + committed/discretionary donut
     │   ├── Spend Patterns tab: weekday chart + size histogram
+    │   ├── Repeat Spending tab: same-named expenses occurring 2+ times in the range
+    │   │   (RepeatSpendingSection), tap a group -> SimilarTransactionsView sheet
     │   ├── Investments tab: contributed/returned/net tiles, contributions vs returns bars,
     │   │   net-invested-over-time line, per-holding breakdown (InvestmentsSection)
+    │   ├── Goals tab: per-goal card with progress, pace, projection and cumulative chart
+    │   │   (GoalsSection; ignores the filters; deep link idiot://goals)
     │   └── iOS toolbar wraps into two stacked rows (filters + range, tab + granularity)
     └── SettingsView
-        ├── CategoryEditView (per category)
+        ├── CategoryEditView (per category; "Budget alerts" switch for expense categories with a limit)
+        ├── NotificationSettingsSection (budget alerts + warning threshold, recurring reminders + time; per device)
         ├── RecurringListView + RecurringFormView
-        ├── CSVImportView (Import from CSV… -> review sheet) + CSVExportView (Export to CSV…)
+        ├── SavingsGoalListView + SavingsGoalFormView (reorder, archive, delete)
+        ├── CSVImportView (Import from CSV… -> review sheet, optional "Categorize with Apple
+        │   Intelligence" button) + CSVExportView (Export to CSV…)
+        ├── Auto-Categorization toggle + RecategorizeView (Re-categorize this month… -> review sheet)
         └── TrendChartView (spending habits line chart)
+
+Widgets (IdiotWidgets extension)
+├── Monthly Spending (total, segmented category bar, legend, + -> add form)
+├── Recent Transactions (spent total, slim bar, latest rows)
+├── Quick Log (frequent transactions as one-tap buttons, + -> add form)
+├── Savings Goals, New Transaction
+└── Control Center: Log Transaction (iOS 18+)
+
+Shortcuts / Siri (App Intents)
+└── Log Expense, Log Income, Month Summary, Add Transaction, Create Recurring Rule, Edit Transaction
 ```
 
 ## Analytics Engine
 
 `Helpers/AnalyticsEngine.swift` holds pure, static computations fed pre-filtered `[Transaction]` arrays (no duplicated `@Query` work inside sections). Sections in `Views/` take computed value props from `AnalyticsView`. Recurring spend is identified via `Transaction.recurringRuleID != nil`; rule cost is normalized to monthly via `RecurringRule.monthlyNormalizedCost`. Forecasts use current-month pace plus upcoming occurrences computed by `AnalyticsEngine.upcomingOccurrences`.
 
-## Agent Access (MCP)
+## Widgets and App Intents
+
+Widgets never open the store: they read the JSON `WidgetSnapshot` that `WidgetSnapshotWriter.write` puts in app-group defaults (the struct is duplicated in the app and the widget target; new fields must be optional). The Quick Log widget's buttons run `QuickLogIntent` inside the extension, which appends to `QuickLogQueue` and updates the snapshot optimistically; `QuickLogDrainer` in the app turns the queue into transactions (launch, becoming active, every snapshot write). App Intents in `idiot/Intents/` run in the app process on `AppModelContainer.shared.mainContext` and finish with `IntentData.commit()`. Edits through intents respect the "lock past months" setting. Widget kind strings must not change.
+
 
 macOS only. `MCPHTTPServer` serves Streamable HTTP on `127.0.0.1:47821` from inside the app, and `MCPTools` runs on `container.mainContext` so changes reach the UI and CloudKit normally. Do not open the store from a separate process. Access is off by default and requires a bearer token kept in the keychain; write tools need a second toggle and always refuse past months. Claude Code connects with the `claude mcp add --transport http` command from `MCPServerController.claudeCodeCommand`, copyable from Settings or the menu bar.
 
@@ -208,6 +275,14 @@ macOS only. `MCPHTTPServer` serves Streamable HTTP on `127.0.0.1:47821` from ins
 | 12 | `12-analytics-expansion.md` | Analytics suite expansion (insights, balance, heatmap, forecast, comparison, recurring split, patterns) |
 | 13 | `13-agent-access.md` | Local MCP server for agents such as Hermes |
 | 14 | `14-csv-import.md` | Import bank statement CSVs with a review/edit step, simple CSV export |
+| 15 | `15-search.md` | Search the selected month's transactions by title, description, category or amount |
+| 16 | `16-frequent-similar.md` | Frequent-transaction suggestions in the add form, similar transactions sheet, Repeat Spending analytics tab |
+| 17 | `17-auto-categorization.md` | On-device Apple Intelligence category suggestions (add form, CSV import, bulk re-categorize) |
+| 18 | `18-sub-category.md` | Optional sub category label on transactions, main / sub / either category matching in filters, CSV and MCP support |
+| 19 | `19-receipts.md` | Receipt attachments (files, photos, scanner, paste) with Vision OCR suggestions for amount, title and date |
+| 20 | `20-savings-goals.md` | Savings goals linked to a category: Settings, main strip, Analytics tab, menu bar, Savings Goals widget |
+| 21 | `21-notifications.md` | Local notifications: budget threshold alerts and day-before recurring reminders, per-device settings |
+| 22 | `22-intents-widgets.md` | App Intents (log, summary, edit, recurring rule, open add form), spending-bar widgets, Quick Log widget, Control Center button |
 
 ## Quick Reference
 

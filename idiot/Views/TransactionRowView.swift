@@ -65,9 +65,18 @@ struct TransactionRowView: View {
             iconBadge
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(transaction.title)
-                    .font(.body.weight(.medium))
-                    .lineLimit(2)
+                HStack(spacing: 4) {
+                    Text(transaction.title)
+                        .font(.body.weight(.medium))
+                        .lineLimit(2)
+
+                    if transaction.hasAttachments {
+                        Image(systemName: "paperclip")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .accessibilityHidden(true)
+                    }
+                }
 
                 if let category {
                     if transaction.isInvestment {
@@ -131,6 +140,9 @@ struct TransactionRowView: View {
             parts.append("in \(category.name)")
         }
         parts.append(transaction.date.formatted(date: .long, time: .omitted))
+        if transaction.hasAttachments {
+            parts.append("has receipt")
+        }
         if isOverLimit {
             parts.append("category over limit")
         }

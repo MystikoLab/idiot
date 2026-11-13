@@ -152,6 +152,7 @@ struct RecurringFormView: View {
         }
 
         RecurringEngine.materialize(context: modelContext)
+        NotificationManager.shared.refresh()
         dismiss()
     }
 }

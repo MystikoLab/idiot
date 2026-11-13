@@ -475,6 +475,43 @@ enum AnalyticsEngine {
         return result
     }
 
+    // MARK: Repeat spending
+
+    struct RepeatGroup: Identifiable {
+        let id: String
+        let title: String
+        let categoryName: String
+        let colorHex: String
+        let iconName: String
+        let count: Int
+        let total: Double
+        let average: Double
+        let monthlyCost: Double
+    }
+
+    static func repeatSpending(_ txs: [Transaction], months: Int) -> [RepeatGroup] {
+        let expenses = txs.filter { $0.category?.type == .expense }
+        return Dictionary(grouping: expenses) { TransactionMatcher.normalizedTitle($0.title) }
+            .compactMap { key, items -> RepeatGroup? in
+                guard !key.isEmpty, items.count >= 2, let latest = items.max(by: { $0.date < $1.date }) else { return nil }
+                let total = items.reduce(0) { $0 + $1.amount }
+                return RepeatGroup(
+                    id: key,
+                    title: latest.title,
+                    categoryName: latest.category?.name ?? "Uncategorized",
+                    colorHex: latest.category?.colorHex ?? "#8E8E93",
+                    iconName: latest.category?.iconName ?? "questionmark.circle",
+                    count: items.count,
+                    total: total,
+                    average: total / Double(items.count),
+                    monthlyCost: total / Double(max(1, months))
+                )
+            }
+            .sorted { lhs, rhs in
+                lhs.total != rhs.total ? lhs.total > rhs.total : lhs.id < rhs.id
+            }
+    }
+
     // MARK: Investments
 
     struct InvestmentFlow: Identifiable {

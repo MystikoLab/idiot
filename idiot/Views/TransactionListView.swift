@@ -1,8 +1,10 @@
+import QuickLook
 import SwiftData
 import SwiftUI
 
 struct TransactionListView<Header: View>: View {
     let selectedMonth: Date
+    let searchText: String
     @Binding var showAddTransaction: Bool
     @Binding var editingTransaction: Transaction?
     @Binding var hiddenCategoryIDs: Set<Category.ID>
@@ -16,6 +18,7 @@ struct TransactionListView<Header: View>: View {
     @Query private var transactions: [Transaction]
     @Query(sort: \Category.sortOrder) private var categories: [Category]
     @AppStorage("lockPastMonths") private var lockPastMonths = true
+    @AppStorage("filterCategoryMatchMode") private var categoryMatchMode = CategoryMatchMode.either
     @State private var pendingDeleteTransaction: Transaction?
     @State private var selectedTransactionIDs: Set<Transaction.ID> = []
     #if os(iOS)
@@ -30,10 +33,14 @@ struct TransactionListView<Header: View>: View {
     #endif
     @State private var showBatchDeleteAlert = false
     @State private var showFilterPopover = false
+    @State private var similarTitle: SimilarTitle?
+    @State private var receiptPreviewURL: URL?
+    @State private var receiptPreviewURLs: [URL] = []
     private let header: Header
 
     init(
         selectedMonth: Date,
+        searchText: String,
         showAddTransaction: Binding<Bool>,
         editingTransaction: Binding<Transaction?>,
         hiddenCategoryIDs: Binding<Set<Category.ID>>,
@@ -46,6 +53,7 @@ struct TransactionListView<Header: View>: View {
     ) {
         self.header = header()
         self.selectedMonth = selectedMonth
+        self.searchText = searchText
         _showAddTransaction = showAddTransaction
         _editingTransaction = editingTransaction
         _hiddenCategoryIDs = hiddenCategoryIDs
@@ -80,12 +88,57 @@ struct TransactionListView<Header: View>: View {
         !hiddenCategoryIDs.isEmpty || minAmountFilter != nil || maxAmountFilter != nil || !showIncome || !showExpense || !showInvestment
     }
 
+    private var searchQuery: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var isSearching: Bool {
+        !searchQuery.isEmpty
+    }
+
+    private var hasNoSearchResults: Bool {
+        isSearching && !popoverFilteredTransactions.isEmpty
+    }
+
+    private var amountSearchPrefix: String? {
+        let ignored = CharacterSet.whitespaces.union(.symbols).union(CharacterSet(charactersIn: ",'-"))
+        let cleaned = String(String.UnicodeScalarView(searchQuery.unicodeScalars.filter { !ignored.contains($0) }))
+        guard !cleaned.isEmpty,
+              cleaned.allSatisfy({ $0.isASCII && ($0.isNumber || $0 == ".") }),
+              cleaned.count(where: { $0 == "." }) <= 1
+        else { return nil }
+        return cleaned
+    }
+
     private var filteredTransactions: [Transaction] {
+        let query = searchQuery
+        guard !query.isEmpty else { return popoverFilteredTransactions }
+        let amountPrefix = amountSearchPrefix
+        return popoverFilteredTransactions.filter { transaction in
+            if transaction.title.localizedStandardContains(query) {
+                return true
+            }
+            if let desc = transaction.desc, desc.localizedStandardContains(query) {
+                return true
+            }
+            if categoryMatchMode.matches(transaction, where: { $0.name.localizedStandardContains(query) }) {
+                return true
+            }
+            if let amountPrefix {
+                return String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), transaction.amount).hasPrefix(amountPrefix)
+            }
+            return false
+        }
+    }
+
+    private var popoverFilteredTransactions: [Transaction] {
         transactions.filter { transaction in
+            if !hiddenCategoryIDs.isEmpty, categoryMatchMode != .main || transaction.category != nil,
+               !categoryMatchMode.matches(transaction, where: { !hiddenCategoryIDs.contains($0.id) })
+            {
+                return false
+            }
             if let category = transaction.category {
-                if hiddenCategoryIDs.contains(category.id) {
-                    return false
-                }
                 if !showIncome, category.type == .income {
                     return false
                 }
@@ -135,9 +188,15 @@ struct TransactionListView<Header: View>: View {
                         .listRowSeparator(.hidden)
 
                     if filteredTransactions.isEmpty {
-                        ContentUnavailableView("No transactions yet", systemImage: "tray", description: Text("Tap + to add one."))
-                            .listRowBackground(Color.clear)
-                            .listRowSeparator(.hidden)
+                        Group {
+                            if hasNoSearchResults {
+                                ContentUnavailableView.search(text: searchQuery)
+                            } else {
+                                ContentUnavailableView("No transactions yet", systemImage: "tray", description: Text("Tap + to add one."))
+                            }
+                        }
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
                     }
                 #endif
 
@@ -158,7 +217,11 @@ struct TransactionListView<Header: View>: View {
             #if os(macOS)
             .overlay {
                 if filteredTransactions.isEmpty {
-                    ContentUnavailableView("No transactions yet", systemImage: "tray", description: Text("Press ⌘N to add one."))
+                    if hasNoSearchResults {
+                        ContentUnavailableView.search(text: searchQuery)
+                    } else {
+                        ContentUnavailableView("No transactions yet", systemImage: "tray", description: Text("Press ⌘N to add one."))
+                    }
                 }
             }
             #endif
@@ -243,6 +306,14 @@ struct TransactionListView<Header: View>: View {
             .animation(.snappy(duration: 0.25), value: isSelectMode)
         }
         #endif
+        .onChange(of: searchText) {
+            guard !selectedTransactionIDs.isEmpty else { return }
+            selectedTransactionIDs.formIntersection(filteredTransactions.map(\.id))
+        }
+        .sheet(item: $similarTitle) { similar in
+            SimilarTransactionsView(title: similar.title)
+        }
+        .quickLookPreview($receiptPreviewURL, in: receiptPreviewURLs)
         .alert("Delete selected transactions?", isPresented: $showBatchDeleteAlert) {
             Button("Delete", role: .destructive) {
                 deleteSelected()
@@ -295,6 +366,16 @@ struct TransactionListView<Header: View>: View {
                     copy(transaction)
                 }
 
+                Button("Show Similar") {
+                    similarTitle = SimilarTitle(title: transaction.title)
+                }
+
+                if transaction.hasAttachments {
+                    Button("View Receipts") {
+                        viewReceipts(of: transaction)
+                    }
+                }
+
                 Divider()
 
                 Button("Delete", role: .destructive) {
@@ -339,6 +420,11 @@ struct TransactionListView<Header: View>: View {
                 }
             })
         #endif
+    }
+
+    private func viewReceipts(of transaction: Transaction) {
+        receiptPreviewURLs = ReceiptPreview.urls(for: transaction.sortedAttachments.compactMap(\.file))
+        receiptPreviewURL = receiptPreviewURLs.first
     }
 
     private var batchDeleteButton: some View {
@@ -428,6 +514,13 @@ struct TransactionListView<Header: View>: View {
                     Text("Categories")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
+                    Picker("Match categories by", selection: $categoryMatchMode) {
+                        ForEach(CategoryMatchMode.allCases) { mode in
+                            Text(mode.title).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .font(.caption)
                     ForEach(categories) { category in
                         Toggle(isOn: Binding(
                             get: { !hiddenCategoryIDs.contains(category.id) },
@@ -515,7 +608,8 @@ struct TransactionListView<Header: View>: View {
             desc: transaction.desc,
             amount: transaction.amount,
             date: .now,
-            category: transaction.category
+            category: transaction.category,
+            subCategory: transaction.subCategory
         ))
     }
 
@@ -546,6 +640,7 @@ struct TransactionListView<Header: View>: View {
 extension TransactionListView where Header == EmptyView {
     init(
         selectedMonth: Date,
+        searchText: String,
         showAddTransaction: Binding<Bool>,
         editingTransaction: Binding<Transaction?>,
         hiddenCategoryIDs: Binding<Set<Category.ID>>,
@@ -557,6 +652,7 @@ extension TransactionListView where Header == EmptyView {
     ) {
         self.init(
             selectedMonth: selectedMonth,
+            searchText: searchText,
             showAddTransaction: showAddTransaction,
             editingTransaction: editingTransaction,
             hiddenCategoryIDs: hiddenCategoryIDs,

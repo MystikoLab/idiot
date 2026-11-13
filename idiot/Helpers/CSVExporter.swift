@@ -8,13 +8,14 @@ enum CSVExporter {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd"
 
-        var lines = ["Date,Title,Description,Category,Type,Amount"]
+        var lines = ["Date,Title,Description,Category,Sub Category,Type,Amount"]
         for transaction in transactions.sorted(by: { $0.date < $1.date }) {
             lines.append([
                 formatter.string(from: transaction.date),
                 transaction.title,
                 transaction.desc ?? "",
                 transaction.category?.name ?? "",
+                transaction.subCategory?.name ?? "",
                 typeLabel(for: transaction),
                 String(format: "%.2f", transaction.signedCashAmount),
             ].map { escape($0) }.joined(separator: ","))

@@ -9,6 +9,7 @@ struct SettingsView: View {
     @Query private var transactions: [Transaction]
 
     @AppStorage("lockPastMonths") private var lockPastMonths = true
+    @AppStorage(AutoCategorizer.enabledKey) private var autoCategorizeEnabled = true
     #if os(macOS)
         @AppStorage("showMenuBarExtra") private var showMenuBarExtra = true
     #endif
@@ -24,6 +25,7 @@ struct SettingsView: View {
     @State private var showImportReview = false
     @State private var importError: String?
     @State private var showExport = false
+    @State private var showRecategorize = false
     private let syncMonitor = CloudSyncMonitor.shared
 
     private var expenseCategories: [Category] {
@@ -43,10 +45,13 @@ struct SettingsView: View {
             List {
                 categoriesSection
                 recurringSection
+                goalsSection
                 helpSection
                 lockSection
                 startingAmountSection
                 importSection
+                autoCategorizeSection
+                NotificationSettingsSection()
                 advancedSection
                 #if os(macOS)
                     menuBarSection
@@ -116,6 +121,9 @@ struct SettingsView: View {
             .sheet(isPresented: $showImportReview) {
                 CSVImportView(rows: importRows)
             }
+            .sheet(isPresented: $showRecategorize) {
+                RecategorizeView()
+            }
             .alert("Import Failed", isPresented: importErrorBinding) {
                 Button("OK", role: .cancel) {}
             } message: {
@@ -134,6 +142,12 @@ struct SettingsView: View {
 
     private func eraseAllData() {
         do {
+            for attachment in try modelContext.fetch(FetchDescriptor<Attachment>()) {
+                modelContext.delete(attachment)
+            }
+            for goal in try modelContext.fetch(FetchDescriptor<SavingsGoal>()) {
+                modelContext.delete(goal)
+            }
             for transaction in try modelContext.fetch(FetchDescriptor<Transaction>()) {
                 modelContext.delete(transaction)
             }
@@ -164,6 +178,12 @@ struct SettingsView: View {
                 }
                 for category in try modelContext.fetch(FetchDescriptor<Category>()) {
                     category.syncStamp = now
+                }
+                for attachment in try modelContext.fetch(FetchDescriptor<Attachment>()) {
+                    attachment.syncStamp = now
+                }
+                for goal in try modelContext.fetch(FetchDescriptor<SavingsGoal>()) {
+                    goal.syncStamp = now
                 }
                 try modelContext.save()
             } catch {
@@ -246,6 +266,14 @@ struct SettingsView: View {
         }
     }
 
+    private var goalsSection: some View {
+        Section {
+            NavigationLink(destination: SavingsGoalListView()) {
+                Label("Savings Goals", systemImage: "target")
+            }
+        }
+    }
+
     private var helpSection: some View {
         Section {
             NavigationLink(destination: helpDestination) {
@@ -303,6 +331,36 @@ struct SettingsView: View {
             Text("Import & Export")
         } footer: {
             Text("Import adds transactions from a bank statement after you review, rename, and categorize every row. Export lets you pick a date range and categories, then saves a simple CSV.")
+        }
+    }
+
+    private var autoCategorizeSection: some View {
+        let availability = AutoCategorizer.availability
+        let isAvailable = availability == .available
+        let isOn = Binding {
+            isAvailable && autoCategorizeEnabled
+        } set: { value in
+            autoCategorizeEnabled = value
+        }
+        return Section {
+            Toggle("Categorize with Apple Intelligence", isOn: isOn)
+                .disabled(!isAvailable)
+
+            if isAvailable, autoCategorizeEnabled {
+                Button {
+                    showRecategorize = true
+                } label: {
+                    Label("Re-categorize this month…", systemImage: "sparkles")
+                }
+            }
+        } header: {
+            Text("Auto-Categorization")
+        } footer: {
+            if case let .unavailable(reason) = availability {
+                Text(reason)
+            } else {
+                Text("Suggests a category when you add a transaction, import a CSV, or re-categorize this month. Names you have categorized before reuse your usual choice; new names are classified on this device and never leave it.")
+            }
         }
     }
 

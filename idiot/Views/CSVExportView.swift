@@ -198,7 +198,7 @@ struct CSVExportView: View {
         } header: {
             Text("Summary")
         } footer: {
-            Text("Columns: Date, Title, Description, Category, Type, Amount. Income and investment returns are positive, spending and contributions negative.")
+            Text("Columns: Date, Title, Description, Category, Sub Category, Type, Amount. The category filter matches the main category. Income and investment returns are positive, spending and contributions negative.")
         }
         .monospacedDigit()
     }

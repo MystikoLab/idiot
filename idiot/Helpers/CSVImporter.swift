@@ -7,6 +7,7 @@ enum CSVImporter {
         let description: String
         let amount: Double
         let sourceCategory: String?
+        var sourceSubCategory: String?
     }
 
     enum ImportError: LocalizedError {
@@ -30,6 +31,7 @@ enum CSVImporter {
         var debit: Int?
         var credit: Int?
         var category: Int?
+        var subCategory: Int?
         var state: Int?
     }
 
@@ -101,7 +103,8 @@ enum CSVImporter {
             date: date,
             description: description.isEmpty ? "Imported transaction" : description,
             amount: amount,
-            sourceCategory: field(fields, columns.category)
+            sourceCategory: field(fields, columns.category),
+            sourceSubCategory: field(fields, columns.subCategory)
         ))
     }
 
@@ -138,6 +141,7 @@ enum CSVImporter {
             debit: debit,
             credit: credit,
             category: first { $0 == "category" } ?? first { $0 == "type" },
+            subCategory: first { ["sub category", "subcategory", "sub-category", "sub_category"].contains($0) },
             state: first { $0 == "state" || $0 == "status" }
         )
     }
