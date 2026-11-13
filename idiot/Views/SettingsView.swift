@@ -1,5 +1,6 @@
 import SwiftData
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
@@ -18,6 +19,11 @@ struct SettingsView: View {
     @State private var isPushing = false
     @State private var pushError: String?
     @State private var showEraseConfirmation = false
+    @State private var showCSVImporter = false
+    @State private var importRows: [CSVImporter.Row] = []
+    @State private var showImportReview = false
+    @State private var importError: String?
+    @State private var showExport = false
     private let syncMonitor = CloudSyncMonitor.shared
 
     private var expenseCategories: [Category] {
@@ -40,6 +46,7 @@ struct SettingsView: View {
                 helpSection
                 lockSection
                 startingAmountSection
+                importSection
                 advancedSection
                 #if os(macOS)
                     menuBarSection
@@ -100,6 +107,20 @@ struct SettingsView: View {
             } message: {
                 Text("All transactions, categories, and recurring rules will be removed from this device and iCloud. This cannot be undone.")
             }
+            .fileImporter(isPresented: $showCSVImporter, allowedContentTypes: [.commaSeparatedText, .plainText]) { result in
+                handleImport(result)
+            }
+            .sheet(isPresented: $showExport) {
+                CSVExportView()
+            }
+            .sheet(isPresented: $showImportReview) {
+                CSVImportView(rows: importRows)
+            }
+            .alert("Import Failed", isPresented: importErrorBinding) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(importError ?? "Unknown error.")
+            }
             .alert("Force Push Failed", isPresented: pushErrorBinding) {
                 Button("OK", role: .cancel) {}
             } message: {
@@ -159,6 +180,25 @@ struct SettingsView: View {
             if !isPresented {
                 pushError = nil
             }
+        }
+    }
+
+    private var importErrorBinding: Binding<Bool> {
+        Binding {
+            importError != nil
+        } set: { isPresented in
+            if !isPresented {
+                importError = nil
+            }
+        }
+    }
+
+    private func handleImport(_ result: Result<URL, Error>) {
+        do {
+            importRows = try CSVImporter.load(url: result.get())
+            showImportReview = true
+        } catch {
+            importError = error.localizedDescription
         }
     }
 
@@ -242,6 +282,27 @@ struct SettingsView: View {
             Text("Starting Amount")
         } footer: {
             Text("Added to your balance everywhere in the app without creating a transaction or counting as income.")
+        }
+    }
+
+    private var importSection: some View {
+        Section {
+            Button {
+                showCSVImporter = true
+            } label: {
+                Label("Import from CSV…", systemImage: "square.and.arrow.down")
+            }
+
+            Button {
+                showExport = true
+            } label: {
+                Label("Export to CSV…", systemImage: "square.and.arrow.up")
+            }
+            .disabled(transactions.isEmpty)
+        } header: {
+            Text("Import & Export")
+        } footer: {
+            Text("Import adds transactions from a bank statement after you review, rename, and categorize every row. Export lets you pick a date range and categories, then saves a simple CSV.")
         }
     }
 

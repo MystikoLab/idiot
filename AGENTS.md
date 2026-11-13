@@ -27,6 +27,8 @@ idiot/
 │   ├── TransactionListView.swift
 │   ├── TransactionRowView.swift
 │   ├── TransactionFormView.swift
+│   ├── CSVImportView.swift (review/edit rows before importing)
+│   ├── CSVExportView.swift (date range + category filters)
 │   ├── MCPSettingsSection.swift (macOS)
 │   ├── MenuBarView.swift (macOS menu bar extra)
 │   ├── HelpView.swift (help & savings guide, opened from header ? button or Settings)
@@ -51,7 +53,9 @@ idiot/
 │   ├── WidgetSnapshotWriter.swift
 │   ├── MCPTools.swift (macOS)
 │   ├── MCPProtocol.swift (macOS)
-│   └── MCPHTTPServer.swift (macOS)
+│   ├── MCPHTTPServer.swift (macOS)
+│   ├── CSVImporter.swift
+│   └── CSVExporter.swift
 ├── Resources/
 │   └── (Assets, etc.)
 ├── idiotApp.swift
@@ -174,6 +178,7 @@ ContentView
     └── SettingsView
         ├── CategoryEditView (per category)
         ├── RecurringListView + RecurringFormView
+        ├── CSVImportView (Import from CSV… -> review sheet) + CSVExportView (Export to CSV…)
         └── TrendChartView (spending habits line chart)
 ```
 
@@ -202,6 +207,7 @@ macOS only. `MCPHTTPServer` serves Streamable HTTP on `127.0.0.1:47821` from ins
 | 11 | `11-subscriptions-ios-polish.md` | Subscriptions, iOS support, widgets, iCloud sync |
 | 12 | `12-analytics-expansion.md` | Analytics suite expansion (insights, balance, heatmap, forecast, comparison, recurring split, patterns) |
 | 13 | `13-agent-access.md` | Local MCP server for agents such as Hermes |
+| 14 | `14-csv-import.md` | Import bank statement CSVs with a review/edit step, simple CSV export |
 
 ## Quick Reference
 
