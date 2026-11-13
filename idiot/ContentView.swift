@@ -340,7 +340,17 @@ struct ContentView: View {
             @Binding var showInvestment: Bool
 
             var body: some View {
-                VStack(spacing: 0) {
+                TransactionListView(
+                    selectedMonth: month,
+                    showAddTransaction: $showAddTransaction,
+                    editingTransaction: $editingTransaction,
+                    hiddenCategoryIDs: $hiddenCategoryIDs,
+                    minAmountText: $minAmountText,
+                    maxAmountText: $maxAmountText,
+                    showIncome: $showIncome,
+                    showExpense: $showExpense,
+                    showInvestment: $showInvestment
+                ) {
                     WeeklyChartView(
                         selectedMonth: month,
                         hiddenCategoryIDs: hiddenCategoryIDs,
@@ -351,18 +361,6 @@ struct ContentView: View {
                         showInvestment: showInvestment
                     )
                     .padding(.top, 8)
-
-                    TransactionListView(
-                        selectedMonth: month,
-                        showAddTransaction: $showAddTransaction,
-                        editingTransaction: $editingTransaction,
-                        hiddenCategoryIDs: $hiddenCategoryIDs,
-                        minAmountText: $minAmountText,
-                        maxAmountText: $maxAmountText,
-                        showIncome: $showIncome,
-                        showExpense: $showExpense,
-                        showInvestment: $showInvestment
-                    )
                 }
             }
 

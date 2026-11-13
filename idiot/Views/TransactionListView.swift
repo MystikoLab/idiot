@@ -1,7 +1,7 @@
 import SwiftData
 import SwiftUI
 
-struct TransactionListView: View {
+struct TransactionListView<Header: View>: View {
     let selectedMonth: Date
     @Binding var showAddTransaction: Bool
     @Binding var editingTransaction: Transaction?
@@ -30,6 +30,7 @@ struct TransactionListView: View {
     #endif
     @State private var showBatchDeleteAlert = false
     @State private var showFilterPopover = false
+    private let header: Header
 
     init(
         selectedMonth: Date,
@@ -40,8 +41,10 @@ struct TransactionListView: View {
         maxAmountText: Binding<String>,
         showIncome: Binding<Bool>,
         showExpense: Binding<Bool>,
-        showInvestment: Binding<Bool>
+        showInvestment: Binding<Bool>,
+        @ViewBuilder header: () -> Header
     ) {
+        self.header = header()
         self.selectedMonth = selectedMonth
         _showAddTransaction = showAddTransaction
         _editingTransaction = editingTransaction
@@ -124,70 +127,23 @@ struct TransactionListView: View {
                 .animation(.default, value: selectedTransactionIDs.isEmpty)
             #endif
 
-            List(filteredTransactions, selection: $selectedTransactionIDs) { transaction in
-                let isSelected = selectedTransactionIDs.contains(transaction.id)
-                let row = TransactionRowView(
-                    transaction: transaction,
-                    isOverLimit: isOverLimit(transaction),
-                    lockPastMonths: lockPastMonths,
-                    isSelected: isSelected
-                )
-                row
-                    .listRowBackground(row.rowBackground(isSelected: isSelected))
-                    .contextMenu {
-                        Button("Edit") {
-                            editingTransaction = transaction
-                        }
-                        .disabled(lockPastMonths && transaction.date.isInPastMonth)
-
-                        Button("Copy") {
-                            copy(transaction)
-                        }
-
-                        Divider()
-
-                        Button("Delete", role: .destructive) {
-                            pendingDeleteTransaction = transaction
-                        }
-                        .disabled(lockPastMonths && transaction.date.isInPastMonth)
-                    }
+            List(selection: $selectedTransactionIDs) {
                 #if os(iOS)
-                    .swipeActions(edge: .trailing) {
-                        Button(role: .destructive) {
-                            pendingDeleteTransaction = transaction
-                        } label: {
-                            Label("Delete", systemImage: "trash")
-                        }
-                        .disabled(lockPastMonths && transaction.date.isInPastMonth)
+                    header
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
 
-                        Button {
-                            editingTransaction = transaction
-                        } label: {
-                            Label("Edit", systemImage: "pencil")
-                        }
-                        .tint(.accentColor)
-                        .disabled(lockPastMonths && transaction.date.isInPastMonth)
+                    if filteredTransactions.isEmpty {
+                        ContentUnavailableView("No transactions yet", systemImage: "tray", description: Text("Tap + to add one."))
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
                     }
                 #endif
-                    .listRowSeparator(.hidden)
-                #if os(macOS)
-                    .simultaneousGesture(TapGesture(count: 2).onEnded {
-                        if !lockPastMonths || !transaction.date.isInPastMonth {
-                            editingTransaction = transaction
-                        }
-                    })
-                #else
-                    .simultaneousGesture(TapGesture().onEnded {
-                        if isSelectMode {
-                            return
-                        }
-                        if isSelected {
-                            selectedTransactionIDs.remove(transaction.id)
-                        } else {
-                            selectedTransactionIDs.insert(transaction.id)
-                        }
-                    })
-                #endif
+
+                ForEach(filteredTransactions) { transaction in
+                    transactionRow(transaction)
+                }
             }
             #if os(iOS)
             .environment(\.editMode, $editMode)
@@ -199,15 +155,13 @@ struct TransactionListView: View {
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
             #endif
+            #if os(macOS)
             .overlay {
                 if filteredTransactions.isEmpty {
-                    #if os(macOS)
-                        ContentUnavailableView("No transactions yet", systemImage: "tray", description: Text("Press ⌘N to add one."))
-                    #else
-                        ContentUnavailableView("No transactions yet", systemImage: "tray", description: Text("Tap + to add one."))
-                    #endif
+                    ContentUnavailableView("No transactions yet", systemImage: "tray", description: Text("Press ⌘N to add one."))
                 }
             }
+            #endif
             .animation(.default, value: filteredTransactions.count)
             #if os(macOS)
                 .onDeleteCommand {
@@ -318,6 +272,73 @@ struct TransactionListView: View {
         } message: {
             Text("This transaction will be removed from the current month.")
         }
+    }
+
+    @ViewBuilder
+    private func transactionRow(_ transaction: Transaction) -> some View {
+        let isSelected = selectedTransactionIDs.contains(transaction.id)
+        let row = TransactionRowView(
+            transaction: transaction,
+            isOverLimit: isOverLimit(transaction),
+            lockPastMonths: lockPastMonths,
+            isSelected: isSelected
+        )
+        row
+            .listRowBackground(row.rowBackground(isSelected: isSelected))
+            .contextMenu {
+                Button("Edit") {
+                    editingTransaction = transaction
+                }
+                .disabled(lockPastMonths && transaction.date.isInPastMonth)
+
+                Button("Copy") {
+                    copy(transaction)
+                }
+
+                Divider()
+
+                Button("Delete", role: .destructive) {
+                    pendingDeleteTransaction = transaction
+                }
+                .disabled(lockPastMonths && transaction.date.isInPastMonth)
+            }
+        #if os(iOS)
+            .swipeActions(edge: .trailing) {
+                Button(role: .destructive) {
+                    pendingDeleteTransaction = transaction
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+                .disabled(lockPastMonths && transaction.date.isInPastMonth)
+
+                Button {
+                    editingTransaction = transaction
+                } label: {
+                    Label("Edit", systemImage: "pencil")
+                }
+                .tint(.accentColor)
+                .disabled(lockPastMonths && transaction.date.isInPastMonth)
+            }
+        #endif
+            .listRowSeparator(.hidden)
+        #if os(macOS)
+            .simultaneousGesture(TapGesture(count: 2).onEnded {
+                if !lockPastMonths || !transaction.date.isInPastMonth {
+                    editingTransaction = transaction
+                }
+            })
+        #else
+            .simultaneousGesture(TapGesture().onEnded {
+                if isSelectMode {
+                    return
+                }
+                if isSelected {
+                    selectedTransactionIDs.remove(transaction.id)
+                } else {
+                    selectedTransactionIDs.insert(transaction.id)
+                }
+            })
+        #endif
     }
 
     private var batchDeleteButton: some View {
@@ -519,5 +540,33 @@ struct TransactionListView: View {
             .reduce(0) { $0 + $1.amount }
 
         return total > limit
+    }
+}
+
+extension TransactionListView where Header == EmptyView {
+    init(
+        selectedMonth: Date,
+        showAddTransaction: Binding<Bool>,
+        editingTransaction: Binding<Transaction?>,
+        hiddenCategoryIDs: Binding<Set<Category.ID>>,
+        minAmountText: Binding<String>,
+        maxAmountText: Binding<String>,
+        showIncome: Binding<Bool>,
+        showExpense: Binding<Bool>,
+        showInvestment: Binding<Bool>
+    ) {
+        self.init(
+            selectedMonth: selectedMonth,
+            showAddTransaction: showAddTransaction,
+            editingTransaction: editingTransaction,
+            hiddenCategoryIDs: hiddenCategoryIDs,
+            minAmountText: minAmountText,
+            maxAmountText: maxAmountText,
+            showIncome: showIncome,
+            showExpense: showExpense,
+            showInvestment: showInvestment
+        ) {
+            EmptyView()
+        }
     }
 }
